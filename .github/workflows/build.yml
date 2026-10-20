@@ -26,6 +26,13 @@ jobs:
       - name: Build
         run: msbuild "Plain Craft Launcher 2.sln" -p:Configuration=Release -m -nologo -v:m
 
+      - name: Collect runtime files
+        run: |
+          $out = "Plain Craft Launcher 2/bin/"
+          Copy-Item "Plain Craft Launcher 2/Resources/*.dll" $out -Force
+          Copy-Item "Plain Craft Launcher 2/Resources/*.jar" $out -Force
+          Copy-Item "PCLCS/Launch/*.jar" $out -Force
+          Write-Output "runtime files copied"
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
