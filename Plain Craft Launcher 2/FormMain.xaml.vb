@@ -696,8 +696,8 @@ Public Class FormMain
         ElseIf _snapZone <> "" Then
             ApplySnapGeometry(_snapZone) '左右 1/2 / 四角 1/4 分屏
             ApplyWindowChrome(True) '去圆角/阴影，但 WindowState 仍为 Normal（最大化按钮保持窗口形态）
-            '分屏时放开常规最小尺寸，否则会被 MinWidth/MinHeight(400/300) 钳住，导致半屏溢出/不贴边
-            Me.MinWidth = 0 : Me.MinHeight = 0
+            '分屏态同样使用统一最小尺寸 400/300（不再放开为 0）；多数设备半屏宽≥400，仍精确贴边
+            Me.MinWidth = 400 : Me.MinHeight = 300
         Else
             ApplyWindowChrome(False) '落到中间恢复圆角/阴影
             Me.MinWidth = 400 : Me.MinHeight = 300
