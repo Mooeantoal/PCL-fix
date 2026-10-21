@@ -40,6 +40,25 @@ jobs:
           [System.IO.File]::WriteAllText($keyFile, $key, (New-Object System.Text.UTF8Encoding($false)))
           Write-Output "CurseForge API Key 已写入 $keyFile （长度 $($key.Length)，不打印内容）"
 
+      # 微软登录 ClientId 通过环境变量传入；构建时注入 ModSecret.vb 的默认值，
+      # 使打出的 exe 自带 ID（仓库源码仍保持空串，运行时环境变量仍可覆盖）
+      - name: Inject MS Client ID
+        shell: pwsh
+        env:
+          MS_ID: ${{ secrets.PCL_MS_CLIENT_ID }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          $id = $env:MS_ID
+          if ([string]::IsNullOrWhiteSpace($id)) {
+            Write-Output "::warning::未配置 Secret PCL_MS_CLIENT_ID，微软账号登录将不可用。"
+          } else {
+            $file = "Plain Craft Launcher 2/Modules/ModSecret.vb"
+            $c = [System.IO.File]::ReadAllText($file)
+            $c = $c -replace 'If\(Environment\.GetEnvironmentVariable\("PCL_MS_CLIENT_ID"\), ""\)', "If(Environment.GetEnvironmentVariable(`"PCL_MS_CLIENT_ID`"), `"$($id.Trim())`")"
+            [System.IO.File]::WriteAllText($file, $c, (New-Object System.Text.UTF8Encoding($false)))
+            Write-Output "MS Client ID 已注入 ModSecret.vb（不打印内容）"
+          }
+
       - name: Restore NuGet packages
         run: msbuild "Plain Craft Launcher 2.sln" -t:Restore -p:Configuration=Release -p:RestorePackagesConfig=true -nologo -v:m
 
