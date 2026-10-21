@@ -444,7 +444,7 @@ Public Class FormMain
             Telemetry("启动")
             '开源版本提示
             If VersionBranchMain = "OpenSource" Then
-                MyMsgBox($"该版本中无法使用以下特性：{vbCrLf}- 正版登录：需要自行向微软申请 Client ID，然后添加到 ModSecret.vb 的开头{vbCrLf}- 更新与联网通知：避免滥用隐患{vbCrLf}- 主题切换：这是需要赞助解锁的纪念性质的功能，别让赞助者太伤心啦……{vbCrLf}- 百宝箱：开发早期往里面塞了些开发工具，整理起来太麻烦了……", "开源版本说明")
+                MyMsgBox($"该版本中无法使用以下特性：{vbCrLf}- 更新与联网通知：避免滥用隐患{vbCrLf}- 主题切换：这是需要赞助解锁的纪念性质的功能，别让赞助者太伤心啦……{vbCrLf}- 百宝箱：开发早期往里面塞了些开发工具，整理起来太麻烦了……", "开源版本说明")
             End If
         End Sub, "初始化", ThreadPriority.Lowest)
 
@@ -640,6 +640,7 @@ Public Class FormMain
     Private _dragOffset As System.Windows.Point = New System.Windows.Point(0, 0) '光标相对窗口左上角的偏移（WPF 单位）
     Private _dragScreenStart As System.Windows.Point = New System.Windows.Point(0, 0) '拖拽起点（屏幕像素）
     Private _snapZone As String = ""
+    Private _snapPreview As System.Windows.Window = Nothing '实时吸附预览框（半透明矩形）
 
     Private Sub FormDragMove(sender As Object, e As MouseButtonEventArgs) Handles PanTitle.MouseLeftButtonDown, PanMsg.MouseLeftButtonDown
         On Error Resume Next
@@ -668,6 +669,7 @@ Public Class FormMain
             Left = cur.X / s.X - _dragOffset.X
             Top = cur.Y / s.Y - _dragOffset.Y
         End If
+        If _snapZone = "" Then HideSnapPreview() Else ShowSnapPreview(_snapZone)
     End Sub
 
     Private Sub FormDragMove_Up(sender As Object, e As MouseButtonEventArgs) Handles PanTitle.MouseLeftButtonUp, PanMsg.MouseLeftButtonUp
@@ -684,6 +686,7 @@ Public Class FormMain
         Else
             ApplyWindowChrome(False) '落到中间恢复圆角/阴影
         End If
+        HideSnapPreview()
         _snapZone = ""
         _dragMoved = False
     End Sub
@@ -776,6 +779,53 @@ Public Class FormMain
             Case "BottomLeft" : Left = L : Top = T + H / 2 : Width = W / 2 : Height = H / 2
             Case "BottomRight" : Left = L + W / 2 : Top = T + H / 2 : Width = W / 2 : Height = H / 2
         End Select
+    End Sub
+
+    '实时吸附预览框：拖到边缘冻结时显示半透明矩形，提示将吸附到的区域（模拟 Windows 快照辅助）
+    Private Sub EnsureSnapPreview()
+        If _snapPreview IsNot Nothing Then Return
+        Dim w As New System.Windows.Window()
+        w.WindowStyle = System.Windows.WindowStyle.None
+        w.AllowsTransparency = True
+        w.Background = System.Windows.Media.Brushes.Transparent
+        w.Topmost = True
+        w.ShowInTaskbar = False
+        w.ResizeMode = System.Windows.ResizeMode.NoResize
+        w.ShowActivated = False
+        w.IsHitTestVisible = False
+        Dim border As New System.Windows.Controls.Border()
+        border.Background = New MyColor(70, 0, 120, 215)
+        border.CornerRadius = New System.Windows.CornerRadius(6)
+        border.BorderThickness = New System.Windows.Thickness(2)
+        border.BorderBrush = New MyColor(200, 0, 120, 215)
+        w.Content = border
+        _snapPreview = w
+    End Sub
+    Private Sub ShowSnapPreview(zone As String)
+        EnsureSnapPreview()
+        Dim scr = System.Windows.Forms.Screen.FromPoint(System.Windows.Forms.Cursor.Position)
+        If scr Is Nothing Then Return
+        Dim s = DpiScale()
+        Dim wa = scr.WorkingArea
+        Dim L = wa.Left / s.X, T = wa.Top / s.Y, W = wa.Width / s.X, H = wa.Height / s.Y
+        Dim rL = L, rT = T, rW = W, rH = H
+        Select Case zone
+            Case "Top" : rL = L : rT = T : rW = W : rH = H
+            Case "Left" : rW = W / 2
+            Case "Right" : rL = L + W / 2 : rW = W / 2
+            Case "TopLeft" : rW = W / 2 : rH = H / 2
+            Case "TopRight" : rL = L + W / 2 : rW = W / 2 : rH = H / 2
+            Case "BottomLeft" : rT = T + H / 2 : rW = W / 2 : rH = H / 2
+            Case "BottomRight" : rL = L + W / 2 : rT = T + H / 2 : rW = W / 2 : rH = H / 2
+        End Select
+        _snapPreview.Left = rL
+        _snapPreview.Top = rT
+        _snapPreview.Width = rW
+        _snapPreview.Height = rH
+        If Not _snapPreview.IsVisible Then _snapPreview.Show()
+    End Sub
+    Private Sub HideSnapPreview()
+        If _snapPreview IsNot Nothing AndAlso _snapPreview.IsVisible Then _snapPreview.Hide()
     End Sub
 
     '当前窗口 DPI 缩放（设备/布局单位）
