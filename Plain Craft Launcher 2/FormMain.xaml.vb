@@ -777,8 +777,10 @@ Public Class FormMain
 
     '把窗口几何吸附到指定分屏区域（WPF 单位）
     Private Sub ApplySnapGeometry(zone As String)
-        Dim cur = System.Windows.Forms.Cursor.Position
-        Dim scr = System.Windows.Forms.Screen.FromPoint(cur)
+        '使用窗口自身所在显示器的 WorkingArea（与 WM_GETMINMAXINFO 取屏一致），
+        '避免拖到另一屏边缘时几何与 OS 尺寸钳制所用屏幕不一致导致贴边错位/翻转
+        Dim hwnd = New System.Windows.Interop.WindowInteropHelper(Me).Handle
+        Dim scr = System.Windows.Forms.Screen.FromHandle(hwnd)
         If scr Is Nothing Then Return
         Dim s = DpiScale()
         Dim wa = scr.WorkingArea
@@ -815,7 +817,8 @@ Public Class FormMain
     End Sub
     Private Sub ShowSnapPreview(zone As String)
         EnsureSnapPreview()
-        Dim scr = System.Windows.Forms.Screen.FromPoint(System.Windows.Forms.Cursor.Position)
+        Dim hwnd = New System.Windows.Interop.WindowInteropHelper(Me).Handle
+        Dim scr = System.Windows.Forms.Screen.FromHandle(hwnd)
         If scr Is Nothing Then Return
         Dim s = DpiScale()
         Dim wa = scr.WorkingArea
@@ -1330,6 +1333,10 @@ End Sub
                 mmi.ptMaxPosition.Y = wa.Top
                 mmi.ptMaxSize.X = wa.Width
                 mmi.ptMaxSize.Y = wa.Height
+                '允许普通态窗口撑满所在显示器工作区：否则 1/2 分屏按整屏高度设置 Height 时，
+                '会被 OS 默认 ptMaxTrackSize（常基于主显示器）钳制，导致上下留边、与最大化表现不一致
+                mmi.ptMaxTrackSize.X = wa.Width
+                mmi.ptMaxTrackSize.Y = wa.Height
                 Marshal.StructureToPtr(mmi, lParam, True)
             End If
             handled = True
