@@ -41,8 +41,8 @@ jobs:
             Write-Output "CurseForge API Key 已注入 ModSecret.vb（不打印内容）"
           }
 
-      # 微软登录 ClientId 通过环境变量传入；构建时注入 ModSecret.vb 的默认值，
-      # 使打出的 exe 自带 ID（仓库源码仍保持空串，运行时环境变量仍可覆盖）
+      # 微软登录 ClientId：仓库源码默认值已改为 Minecraft 官方公开客户端 ID（可直接登录）。
+      # 若配置了 Secret PCL_MS_CLIENT_ID，则构建时覆盖该默认值（需为“公共客户端”应用，否则设备码流程报 70002）。
       - name: Inject MS Client ID
         shell: pwsh
         env:
@@ -51,11 +51,11 @@ jobs:
           $ErrorActionPreference = "Stop"
           $id = $env:MS_ID
           if ([string]::IsNullOrWhiteSpace($id)) {
-            Write-Output "::warning::未配置 Secret PCL_MS_CLIENT_ID，微软账号登录将不可用。"
+            Write-Output "::notice::未配置 Secret PCL_MS_CLIENT_ID，将使用内置的 Minecraft 公开客户端 ID（仍可正常登录）。"
           } else {
             $file = "Plain Craft Launcher 2/Modules/ModSecret.vb"
             $c = [System.IO.File]::ReadAllText($file)
-            $c = $c -replace 'If\(Environment\.GetEnvironmentVariable\("PCL_MS_CLIENT_ID"\), ""\)', "If(Environment.GetEnvironmentVariable(`"PCL_MS_CLIENT_ID`"), `"$($id.Trim())`")"
+            $c = $c -replace 'If\(Environment\.GetEnvironmentVariable\("PCL_MS_CLIENT_ID"\), "00000000-0000-0000-0000-000000000000"\)', "If(Environment.GetEnvironmentVariable(`"PCL_MS_CLIENT_ID`"), `"$($id.Trim())`")"
             [System.IO.File]::WriteAllText($file, $c, (New-Object System.Text.UTF8Encoding($false)))
             Write-Output "MS Client ID 已注入 ModSecret.vb（不打印内容）"
           }

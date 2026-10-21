@@ -6,8 +6,9 @@ Friend Module ModSecret
     Public Const VersionBranchMain As String = "OpenSource"
     '在开源版的注册表与常规版的注册表隔离，以防数据冲突
     Public Const RegFolder As String = "PCLDebug"
-    '用于微软登录的 ClientId（由 GitHub Actions 构建时注入真实值；也可通过环境变量 PCL_MS_CLIENT_ID 覆盖）
-    Public OAuthClientId As String = If(Environment.GetEnvironmentVariable("PCL_MS_CLIENT_ID"), "")
+    '用于微软登录的 ClientId。默认使用 Minecraft 官方公开（public/mobile）客户端 ID，设备码流程开箱即用。
+    '仍可通过环境变量 PCL_MS_CLIENT_ID 覆盖；若 CI 注入字面值，请同样注入此公开 ID 或你自己的“公共客户端”应用 ID。
+    Public OAuthClientId As String = If(Environment.GetEnvironmentVariable("PCL_MS_CLIENT_ID"), "00000000-0000-0000-0000-000000000000")
     'CurseForge API Key（仓库源码保持空串，CI 构建时注入字面值到默认参数，运行时环境变量仍可覆盖）
     Public CurseForgeAPIKey As String = If(Environment.GetEnvironmentVariable("PCL_CURSEFORGE_API_KEY"), "")
     '是否已提示过 CurseForge API Key 缺失（0=未提示，1=已提示），避免重复刷屏
