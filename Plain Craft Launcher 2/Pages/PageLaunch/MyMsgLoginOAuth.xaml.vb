@@ -86,8 +86,8 @@ Public Class MyMsgLoginOAuth
         WebsiteComplete = Data("verification_uri_complete")?.ToString
         TokenEndpoint = Data("token_endpoint")
         ClientId = Data("client_id")
-        Dim Interval = Data("interval")?.ToObject(Of Integer) ?? 5
-        Dim ExpiresIn = Data("expires_in")?.ToObject(Of Integer) ?? 600
+        Dim Interval As Integer = If(Data("interval")?.ToObject(Of Integer), 5)
+        Dim ExpiresIn As Integer = If(Data("expires_in")?.ToObject(Of Integer), 600)
 
         LabTitle.Text = "第三方皮肤站免密登录"
         LabCaption.Text =
@@ -108,7 +108,7 @@ Public Class MyMsgLoginOAuth
         Dim OpenUrl = If(WebsiteComplete.IsEmpty, Website, WebsiteComplete)
         OpenWebsite(OpenUrl)
         ClipboardSet(UserCode)
-        Dim Interval = Data("interval")?.ToObject(Of Integer) ?? 5
+        Dim Interval As Integer = If(Data("interval")?.ToObject(Of Integer), 5)
         Thread.Sleep((Interval - 1) * 1000)
 
         Dim UnknownFailureCount As Integer = 0

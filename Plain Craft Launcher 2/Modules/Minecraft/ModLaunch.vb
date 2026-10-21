@@ -569,7 +569,7 @@ NextInner:
     Public McLoginLegacyLoader As New LoaderTask(Of McLoginLegacy, McLoginResult)("Loader Login Legacy", AddressOf McLoginLegacyStart)
     Public McLoginNideLoader As New LoaderTask(Of McLoginServer, McLoginResult)("Loader Login Nide", AddressOf McLoginServerStart) With {.ReloadTimeout = 1000 * 60 * 10}
     Public McLoginAuthLoader As New LoaderTask(Of McLoginServer, McLoginResult)("Loader Login Auth", AddressOf McLoginServerStart) With {.ReloadTimeout = 1000 * 60 * 10}
-    Public McLoginAuthOAuthLoader As New LoaderTask(Of McLoginAuth, McLoginResult)("Loader Login AuthOAuth", AddressOf McLoginAuthOAuthLoader) With {.ReloadTimeout = 1000 * 60 * 10}
+    Public McLoginAuthOAuthLoader As New LoaderTask(Of McLoginAuth, McLoginResult)("Loader Login AuthOAuth", AddressOf McLoginAuthOAuthStart) With {.ReloadTimeout = 1000 * 60 * 10}
 
     '主加载函数，返回所有需要的登录信息
     Private Sub McLoginMsStart(Data As LoaderTask(Of McLoginMs, McLoginResult))
@@ -912,9 +912,9 @@ LoginFinish:
     End Function
 
     'Yggdrasil Connect（OAuth）登录
-    Private Function McLoginAuthOAuthLoader(Data As LoaderTask(Of McLoginAuth, McLoginResult)) As McLoginResult
+    Private Sub McLoginAuthOAuthStart(Data As LoaderTask(Of McLoginAuth, McLoginResult))
         McLaunchLog("开始 Yggdrasil Connect 登录")
-        Data.State.Log = "正在通过第三方皮肤站登录…"
+        McLaunchLog("正在通过第三方皮肤站登录…")
 
         Dim Input = Data.Input
         Dim Server = Input.Server
@@ -922,7 +922,6 @@ LoginFinish:
 
         '若有缓存的刷新令牌，先尝试刷新
         Dim CachedRefresh = Settings.Get(Of String)("CacheOAuthRefresh")
-        Dim CachedAccess = Settings.Get(Of String)("CacheOAuthAccess")
         Dim AuthInfo As OAuthAuthInfo = Nothing
 
         If Not CachedRefresh.IsEmpty Then
@@ -937,7 +936,7 @@ LoginFinish:
 
         '刷新失败或无缓存，进行设备码登录
         If AuthInfo Is Nothing Then
-            AuthInfo = McLoginAuthOAuthStart(Input)
+            AuthInfo = McLoginAuthOAuthDeviceLogin(Input)
         End If
 
         '缓存登录信息
@@ -949,14 +948,14 @@ LoginFinish:
         If Not AuthInfo.IdToken.IsEmpty Then Settings.Set("CacheOAuthIdToken", AuthInfo.IdToken)
         Settings.Set("CacheOAuthServerServer", Server)
 
-        Return New McLoginResult With {
+        Data.Output = New McLoginResult With {
             .Name = AuthInfo.Name,
             .Uuid = AuthInfo.Uuid,
             .AccessToken = AuthInfo.AccessToken,
             .ClientToken = AuthInfo.ClientToken,
             .Type = "Yggdrasil Connect"
         }
-    End Function
+    End Sub
 
     ''' <summary>
     ''' 使用刷新令牌获取新的访问令牌。
@@ -1000,14 +999,14 @@ LoginFinish:
         }
     End Function
 
-    Private Structure OAuthAuthInfo
+    Private Class OAuthAuthInfo
         Public Name As String
         Public Uuid As String
         Public AccessToken As String
         Public ClientToken As String
         Public RefreshToken As String
         Public IdToken As String
-    End Structure
+    End Class
 
     ''' <summary>
     ''' 检测第三方皮肤站是否支持 Yggdrasil Connect（OAuth）登录。
@@ -1040,7 +1039,7 @@ LoginFinish:
                 Discovery = NetRequestByClientRetry(OpenIdUrl, Accept:="application/json", RequireJson:=True).DeserializeJson()
             Catch
                 Return Nothing
-            End If
+            End Try
             Dim DeviceEndpoint = Discovery("device_authorization_endpoint")?.ToString
             Dim TokenEndpoint = Discovery("token_endpoint")?.ToString
             Dim UserInfoEndpoint = Discovery("userinfo_endpoint")?.ToString
@@ -1070,19 +1069,19 @@ LoginFinish:
         End Try
     End Function
 
-    Public Structure OAuthConfig
+    Public Class OAuthConfig
         Public RootUrl As String
         Public DeviceEndpoint As String
         Public TokenEndpoint As String
         Public UserInfoEndpoint As String
         Public ClientId As String
         Public JwksUri As String
-    End Structure
+    End Class
 
     ''' <summary>
     ''' Yggdrasil Connect 登录主流程（设备码授权）。
     ''' </summary>
-    Private Function McLoginAuthOAuthStart(Input As McLoginAuth) As OAuthAuthInfo
+    Private Function McLoginAuthOAuthDeviceLogin(Input As McLoginAuth) As OAuthAuthInfo
         '获取 OAuth 配置
         Dim Config = McGetOAuthConfig(Input.Server)
         If Config Is Nothing Then
@@ -1154,8 +1153,8 @@ LoginFinish:
         Dim DeviceCode = DeviceJson("device_code")?.ToString
         Dim Website = DeviceJson("verification_uri")?.ToString
         Dim WebsiteComplete = DeviceJson("verification_uri_complete")?.ToString
-        Dim Interval = DeviceJson("interval")?.ToObject(Of Integer) ?? 5
-        Dim ExpiresIn = DeviceJson("expires_in")?.ToObject(Of Integer) ?? 600
+        Dim Interval As Integer = If(DeviceJson("interval")?.ToObject(Of Integer), 5)
+        Dim ExpiresIn As Integer = If(DeviceJson("expires_in")?.ToObject(Of Integer), 600)
 
         '弹窗
         Dim Converter As New MyMsgBoxConverter With {
@@ -1182,11 +1181,11 @@ LoginFinish:
         Return CType(Converter.Result, JObject)
     End Function
 
-    Private Structure OAuthProfile
+    Private Class OAuthProfile
         Public Id As String
         Public Name As String
         Public AvailableProfiles As List(Of OAuthProfile)
-    End Structure
+    End Class
 
     ''' <summary>
     ''' 从 ID 令牌（JWT）中解析玩家资料。
