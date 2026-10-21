@@ -692,11 +692,15 @@ Public Class FormMain
         If Not _dragMoved Then Return
         If _snapZone = "Top" Then
             WindowState = WindowState.Maximized '接触上边缘 → 最大化
+            Me.MinWidth = 810 : Me.MinHeight = 470
         ElseIf _snapZone <> "" Then
             ApplySnapGeometry(_snapZone) '左右 1/2 / 四角 1/4 分屏
             ApplyWindowChrome(True) '去圆角/阴影，但 WindowState 仍为 Normal（最大化按钮保持窗口形态）
+            '分屏时放开常规最小尺寸，否则会被 MinWidth/MinHeight(810/470) 钳住，导致半屏溢出/不贴边
+            Me.MinWidth = 0 : Me.MinHeight = 0
         Else
             ApplyWindowChrome(False) '落到中间恢复圆角/阴影
+            Me.MinWidth = 810 : Me.MinHeight = 470
         End If
         HideSnapPreview()
         _snapZone = ""
@@ -742,7 +746,9 @@ Public Class FormMain
 
     '窗口状态变化：最大化时去圆角/边距/缩放条，否则恢复
     Private Sub FormMain_StateChanged(sender As Object, e As EventArgs) Handles Me.StateChanged
-        ApplyWindowChrome(WindowState = WindowState.Maximized)
+        Dim isMax = (WindowState = WindowState.Maximized)
+        ApplyWindowChrome(isMax)
+        If Not isMax Then Me.MinWidth = 810 : Me.MinHeight = 470
     End Sub
 
     '统一设置窗口装饰（圆角/边距/缩放条/最大化按钮图标）
