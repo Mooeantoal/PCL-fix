@@ -649,8 +649,20 @@ Public Class FormMain
         _dragging = True
         _dragMoved = False
         _snapZone = ""
-        _dragOffset = e.GetPosition(Me)
-        _dragScreenStart = GetCursorPixel()
+        '以"可视窗口左上角 + 还原后尺寸"为基准算拖拽偏移：
+        '从最大化(可能很宽)拖出时，把鼠标钳制在还原窗口的标题栏范围内，
+        '避免窗口瞬间缩小导致鼠标跑到标题栏外、窗口严重瞬移/偏移。
+        Dim cur = GetCursorPixel()
+        Dim s = DpiScale()
+        Dim curWpf = New System.Windows.Point(cur.X / s.X, cur.Y / s.Y)
+        Dim visTopLeft = Me.PointToScreen(New System.Windows.Point(0, 0))
+        Dim offX = curWpf.X - visTopLeft.X
+        Dim offY = curWpf.Y - visTopLeft.Y
+        Dim rb = Me.RestoreBounds
+        offX = Math.Max(0, Math.Min(offX, Math.Max(1, rb.Width - 1)))
+        offY = Math.Max(0, Math.Min(offY, Math.Max(1, PanTitle.ActualHeight)))
+        _dragOffset = New System.Windows.Point(offX, offY)
+        _dragScreenStart = cur
         If TypeOf sender Is UIElement Then CType(sender, UIElement).CaptureMouse()
     End Sub
 
