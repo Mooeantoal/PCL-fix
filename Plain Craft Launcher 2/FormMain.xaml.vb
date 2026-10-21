@@ -817,6 +817,16 @@ Public Class FormMain
         End Select
         'WM_GETMINMAXINFO 已把 ptMaxTrackSize 放宽到虚拟屏，跨屏吸附不会被钳；设备像素定位不受 DPI 换算影响
         SetWindowPos(hwnd, IntPtr.Zero, rL, rT, rW, rH, SWP_NOZORDER Or SWP_NOACTIVATE Or SWP_FRAMECHANGED)
+        '同步 WPF 的 Left/Top/Width/Height 缓存为同一设备矩形（按当前 DPI 换算）：
+        '否则 WPF 会在后续（跨屏 DPI 变化 WM_DPICHANGED / 状态切换）重新应用其陈旧的 WPF 单位坐标，
+        '把我摆好的精确吸附覆盖掉，导致时而偏移、大间隙、出屏裁切（即"时而有时而没有"）。
+        '用当前 DPI 换算：在 DPI 变化被处理前，WPF 仍按当前 DPI 重应用，device = WPF×当前DPI = 原矩形；
+        'DPI 变化后 WPF 会回读真实矩形自行纠正，缓存始终与真实位置一致。
+        Dim s = DpiScale()
+        Me.Left = rL / s.X
+        Me.Top = rT / s.Y
+        Me.Width = rW / s.X
+        Me.Height = rH / s.Y
     End Sub
 
     '实时吸附预览框：拖到边缘冻结时显示半透明矩形，提示将吸附到的区域（模拟 Windows 快照辅助）
@@ -861,6 +871,12 @@ Public Class FormMain
             Case "BottomRight": rL = L + W \ 2 : rT = T + H \ 2 : rW = W \ 2 : rH = H \ 2
         End Select
         SetWindowPos(phwnd, IntPtr.Zero, rL, rT, rW, rH, SWP_NOZORDER Or SWP_NOACTIVATE Or SWP_FRAMECHANGED)
+        '同步预览窗自身的 WPF 坐标缓存，避免 WPF 后续重新应用旧坐标导致预览错位/跳动
+        Dim ps = DpiScale()
+        _snapPreview.Left = rL / ps.X
+        _snapPreview.Top = rT / ps.Y
+        _snapPreview.Width = rW / ps.X
+        _snapPreview.Height = rH / ps.Y
     End Sub
     Private Sub HideSnapPreview()
         If _snapPreview IsNot Nothing AndAlso _snapPreview.IsVisible Then _snapPreview.Hide()
