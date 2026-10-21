@@ -89,7 +89,7 @@ Public Class PageLoginLegacy
 
     Private Sub TextCustomUuid_LostFocus(sender As Object, e As RoutedEventArgs) Handles TextCustomUuid.LostFocus
         Dim Input = TextCustomUuid.Text.Trim
-        If Input.IsEmpty Then
+        If Input = "" Then
             Settings.Set("LaunchLegacyCustomUuid", "")
             Return
         End If

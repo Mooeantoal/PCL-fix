@@ -95,7 +95,7 @@ Public Class MyMsgLoginOAuth
             $"如果网页没有自动打开，你也可以用其他设备打开 {Website} 并输入上述代码。" & vbCrLf &
             $"代码将在 {Math.Floor(ExpiresIn / 60)} 分钟后过期。"
 
-        Dim OpenUrl = If(WebsiteComplete.IsEmpty, Website, WebsiteComplete)
+        Dim OpenUrl = If(WebsiteComplete = "", Website, WebsiteComplete)
         CustomEventService.SetEventData(Btn1, OpenUrl)
         CustomEventService.SetEventData(Btn2, UserCode)
 
@@ -105,7 +105,7 @@ Public Class MyMsgLoginOAuth
     Private Sub WorkThread()
         Thread.Sleep(2000)
         If MyConverter.IsExited Then Return
-        Dim OpenUrl = If(WebsiteComplete.IsEmpty, Website, WebsiteComplete)
+        Dim OpenUrl = If(WebsiteComplete = "", Website, WebsiteComplete)
         OpenWebsite(OpenUrl)
         ClipboardSet(UserCode)
         Dim Interval As Integer = If(Data("interval")?.ToObject(Of Integer), 5)

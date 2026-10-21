@@ -918,13 +918,13 @@ LoginFinish:
 
         Dim Input = Data.Input
         Dim Server = Input.Server
-        If Server.IsEmpty Then Server = Settings.Get(Of String)("CacheOAuthServerServer")
+        If Server = "" Then Server = Settings.Get(Of String)("CacheOAuthServerServer")
 
         '若有缓存的刷新令牌，先尝试刷新
         Dim CachedRefresh = Settings.Get(Of String)("CacheOAuthRefresh")
         Dim AuthInfo As OAuthAuthInfo = Nothing
 
-        If Not CachedRefresh.IsEmpty Then
+        If Not CachedRefresh = "" Then
             Try
                 McLaunchLog("尝试刷新 OAuth 令牌")
                 AuthInfo = McLoginAuthOAuthRefresh(Server, CachedRefresh)
@@ -944,8 +944,8 @@ LoginFinish:
         Settings.Set("CacheOAuthClient", AuthInfo.ClientToken)
         Settings.Set("CacheOAuthUuid", AuthInfo.Uuid)
         Settings.Set("CacheOAuthName", AuthInfo.Name)
-        If Not AuthInfo.RefreshToken.IsEmpty Then Settings.Set("CacheOAuthRefresh", AuthInfo.RefreshToken)
-        If Not AuthInfo.IdToken.IsEmpty Then Settings.Set("CacheOAuthIdToken", AuthInfo.IdToken)
+        If Not AuthInfo.RefreshToken = "" Then Settings.Set("CacheOAuthRefresh", AuthInfo.RefreshToken)
+        If Not AuthInfo.IdToken = "" Then Settings.Set("CacheOAuthIdToken", AuthInfo.IdToken)
         Settings.Set("CacheOAuthServerServer", Server)
 
         Data.Output = New McLoginResult With {
@@ -974,11 +974,11 @@ LoginFinish:
         Dim AccessToken = TokenJson("access_token")?.ToString
         Dim NewRefreshToken = TokenJson("refresh_token")?.ToString
         Dim IdToken = TokenJson("id_token")?.ToString
-        If AccessToken.IsEmpty Then Throw New Exception("刷新令牌未返回访问令牌")
+        If AccessToken = "" Then Throw New Exception("刷新令牌未返回访问令牌")
         '使用缓存的玩家资料
         Dim Name = Settings.Get(Of String)("CacheOAuthName")
         Dim Uuid = Settings.Get(Of String)("CacheOAuthUuid")
-        If Name.IsEmpty OrElse Uuid.IsEmpty Then
+        If Name = "" OrElse Uuid = "" Then
             '回退到从 ID 令牌解析
             Dim Profile = OAuthGetProfileFromIdToken(IdToken)
             If Profile Is Nothing Then Profile = OAuthGetProfileFromUserInfo(Config.UserInfoEndpoint, AccessToken)
@@ -987,14 +987,14 @@ LoginFinish:
                 Uuid = Profile.Id
             End If
         End If
-        If Name.IsEmpty OrElse Uuid.IsEmpty Then Throw New Exception("无法获取玩家资料")
+        If Name = "" OrElse Uuid = "" Then Throw New Exception("无法获取玩家资料")
         McLaunchLog($"OAuth 令牌刷新成功：{Name} ({Uuid})")
         Return New OAuthAuthInfo With {
             .Name = Name,
             .Uuid = Uuid,
             .AccessToken = AccessToken,
             .ClientToken = Uuid,
-            .RefreshToken = If(NewRefreshToken.IsEmpty, RefreshToken, NewRefreshToken),
+            .RefreshToken = If(NewRefreshToken = "", RefreshToken, NewRefreshToken),
             .IdToken = IdToken
         }
     End Function
@@ -1013,7 +1013,7 @@ LoginFinish:
     ''' 返回 OAuth 配置信息；若不支持则返回 Nothing。
     ''' </summary>
     Public Function McGetOAuthConfig(ServerUrl As String) As OAuthConfig
-        If ServerUrl.IsEmpty Then Return Nothing
+        If ServerUrl = "" Then Return Nothing
         Try
             '获取服务器根地址
             Dim RootUrl = ServerUrl.TrimEnd("/"c)
@@ -1032,7 +1032,7 @@ LoginFinish:
             Dim Feature = RootJson("feature")
             If Feature Is Nothing Then Return Nothing
             Dim OpenIdUrl = Feature("openid_configuration_url")?.ToString
-            If OpenIdUrl.IsEmpty Then Return Nothing
+            If OpenIdUrl = "" Then Return Nothing
             '获取 OpenID 发现文档
             Dim Discovery As JObject
             Try
@@ -1043,12 +1043,12 @@ LoginFinish:
             Dim DeviceEndpoint = Discovery("device_authorization_endpoint")?.ToString
             Dim TokenEndpoint = Discovery("token_endpoint")?.ToString
             Dim UserInfoEndpoint = Discovery("userinfo_endpoint")?.ToString
-            If DeviceEndpoint.IsEmpty OrElse TokenEndpoint.IsEmpty Then Return Nothing
+            If DeviceEndpoint = "" OrElse TokenEndpoint = "" Then Return Nothing
             '获取 client_id
             Dim ClientId = Discovery("client_id")?.ToString
-            If ClientId.IsEmpty Then ClientId = Discovery("shared_client_id")?.ToString
+            If ClientId = "" Then ClientId = Discovery("shared_client_id")?.ToString
             'LittleSkin 内置 client_id
-            If ClientId.IsEmpty Then
+            If ClientId = "" Then
                 Dim Host As String = ""
                 Try : Host = New Uri(RootUrl).Host.ToLower : Catch : End Try
                 If Host = "littleskin.cn" OrElse Host.EndsWith(".littleskin.cn") Then
@@ -1087,7 +1087,7 @@ LoginFinish:
         If Config Is Nothing Then
             Throw New Exception("$当前皮肤站不支持免密登录（Yggdrasil Connect）。")
         End If
-        If Config.ClientId.IsEmpty Then
+        If Config.ClientId = "" Then
             Throw New Exception("$皮肤站未在 OpenID 发现文档中提供 client_id，无法进行免密登录。")
         End If
 
@@ -1108,7 +1108,7 @@ LoginFinish:
         Dim AccessToken = TokenJson("access_token")?.ToString
         Dim RefreshToken = TokenJson("refresh_token")?.ToString
         Dim IdToken = TokenJson("id_token")?.ToString
-        If AccessToken.IsEmpty Then
+        If AccessToken = "" Then
             Throw New Exception("$登录失败：未获取到访问令牌。")
         End If
         McLaunchLog("OAuth 登录成功，正在解析玩家资料…")
@@ -1130,7 +1130,7 @@ LoginFinish:
                 Throw New OperationCanceledException
             End If
             Profile = New OAuthProfile With {.Id = Selected.Id, .Name = Selected.Name}
-        ElseIf Profile.Id.IsEmpty Then
+        ElseIf Profile.Id = "" Then
             Throw New Exception("$登录失败：玩家资料中不包含有效的 UUID。")
         End If
 
@@ -1191,7 +1191,7 @@ LoginFinish:
     ''' 从 ID 令牌（JWT）中解析玩家资料。
     ''' </summary>
     Private Function OAuthGetProfileFromIdToken(IdToken As String) As OAuthProfile
-        If IdToken.IsEmpty Then Return Nothing
+        If IdToken = "" Then Return Nothing
         Try
             Dim Parts = IdToken.Split("."c)
             If Parts.Length < 2 Then Return Nothing
@@ -1212,7 +1212,7 @@ LoginFinish:
                     })
                 Next
             End If
-            If Result.Id.IsEmpty AndAlso Result.AvailableProfiles Is Nothing Then Return Nothing
+            If Result.Id = "" AndAlso Result.AvailableProfiles Is Nothing Then Return Nothing
             Return Result
         Catch ex As Exception
             Logger.Warn(ex, "解析 ID 令牌失败")
@@ -1224,7 +1224,7 @@ LoginFinish:
     ''' 从用户信息端点获取玩家资料。
     ''' </summary>
     Private Function OAuthGetProfileFromUserInfo(UserInfoEndpoint As String, AccessToken As String) As OAuthProfile
-        If UserInfoEndpoint.IsEmpty Then Return Nothing
+        If UserInfoEndpoint = "" Then Return Nothing
         Try
             Dim Json = NetRequestByClientRetry(UserInfoEndpoint, Accept:="application/json",
                 Headers:={{"Authorization", "Bearer " & AccessToken}}, RequireJson:=True).DeserializeJson()
@@ -1244,7 +1244,7 @@ LoginFinish:
                     })
                 Next
             End If
-            If Result.Id.IsEmpty AndAlso Result.AvailableProfiles Is Nothing Then Return Nothing
+            If Result.Id = "" AndAlso Result.AvailableProfiles Is Nothing Then Return Nothing
             Return Result
         Catch ex As Exception
             Logger.Warn(ex, "获取用户信息失败")
@@ -1256,12 +1256,18 @@ LoginFinish:
     ''' 让用户从多个角色中选择一个。返回选择的角色，若取消则返回 Nothing。
     ''' </summary>
     Private Function OAuthSelectProfile(Profiles As List(Of OAuthProfile)) As OAuthProfile
-        Dim Names = Profiles.Select(Function(p) p.Name).ToArray()
-        Dim SelectedIndex = MyMsgBox(
-            $"该账号下有 {Profiles.Count} 个角色，请选择要登录的角色：",
-            "选择角色", Names, "取消", IsWarn:=False)
-        If SelectedIndex < 0 OrElse SelectedIndex >= Profiles.Count Then Return Nothing
-        Return Profiles(SelectedIndex)
+        Dim SelectedIndex As Integer? = Nothing
+        RunInUiWait(
+        Sub()
+            Dim SelectionControl As New List(Of IMyRadio)
+            For Each P In Profiles
+                SelectionControl.Add(New MyRadioBox With {.Text = P.Name})
+            Next
+            SelectedIndex = MyMsgBoxSelect(SelectionControl, "选择要登录的角色", "确定", "取消")
+        End Sub)
+        If Not SelectedIndex.HasValue Then Return Nothing
+        If SelectedIndex.Value < 0 OrElse SelectedIndex.Value >= Profiles.Count Then Return Nothing
+        Return Profiles(SelectedIndex.Value)
     End Function
 
     ''' <summary>
@@ -1581,7 +1587,7 @@ Retry:
             Case 1 'Legacy（PCL 旧版算法）
                 Return McLoginLegacyUuid(Name)
             Case 2 '自定义
-                If CustomUuid.IsEmpty Then Return McLoginLegacyUuid(Name)
+                If CustomUuid = "" Then Return McLoginLegacyUuid(Name)
                 Dim Cleaned = CustomUuid.Replace("-", "").ToLower
                 If Cleaned.Length <> 32 Then Return McLoginLegacyUuid(Name)
                 Return Cleaned
@@ -1715,7 +1721,7 @@ NextInstance:
         If McLoginLoader.Output.Type = "Auth" OrElse McLoginLoader.Output.Type = "Yggdrasil Connect" Then
             If McLaunchJavaSelected.Version.Major >= 6 Then Args.Add("-Djavax.net.ssl.trustStoreType=WINDOWS-ROOT") '信任系统根证书（5252#）
             Dim Server As String = Settings.Get(Of String)("VersionServerAuthServer", Instance:=McInstanceSelected)
-            If Server.IsEmpty Then Server = Settings.Get(Of String)("CacheOAuthServerServer")
+            If Server = "" Then Server = Settings.Get(Of String)("CacheOAuthServerServer")
             Try
                 McLaunchLog($"开始 Authlib Injector Prefetch")
                 Dim Response As String = NetRequestByClientRetry(Server, Encoding:=Encoding.UTF8)

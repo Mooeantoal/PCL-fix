@@ -39,7 +39,7 @@ Public Class PageLoginAuth
             Dim Server As String = If(McInstanceSelected Is Nothing,
                 Settings.Get(Of String)("CacheAuthServerServer"),
                 Settings.Get(Of String)("VersionServerAuthServer", Instance:=McInstanceSelected))
-            If Server.IsEmpty Then
+            If Server = "" Then
                 RunInUi(Sub() CheckOAuth.Visibility = Visibility.Collapsed)
                 Return
             End If
@@ -74,7 +74,7 @@ Public Class PageLoginAuth
             BtnLink.Visibility = Visibility.Collapsed
             '判断是否已登录
             Dim CachedName = Settings.Get(Of String)("CacheOAuthName")
-            If Not CachedName.IsEmpty Then
+            If Not CachedName = "" Then
                 LabOAuthName.Text = CachedName
                 PanOAuth.Visibility = Visibility.Collapsed
                 PanOAuthLoggedIn.Visibility = Visibility.Visible
