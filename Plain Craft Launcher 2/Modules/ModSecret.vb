@@ -6,7 +6,7 @@ Friend Module ModSecret
     Public Const VersionBranchMain As String = "OpenSource"
     '在开源版的注册表与常规版的注册表隔离，以防数据冲突
     Public Const RegFolder As String = "PCLDebug"
-    '用于微软登录的 ClientId
+    '用于微软登录的 ClientId（由 GitHub Actions 构建时注入真实值；也可通过环境变量 PCL_MS_CLIENT_ID 覆盖）
     Public OAuthClientId As String = If(Environment.GetEnvironmentVariable("PCL_MS_CLIENT_ID"), "")
     'CurseForge API Key（仓库源码保持空串，CI 构建时注入字面值到默认参数，运行时环境变量仍可覆盖）
     Public CurseForgeAPIKey As String = If(Environment.GetEnvironmentVariable("PCL_CURSEFORGE_API_KEY"), "")
