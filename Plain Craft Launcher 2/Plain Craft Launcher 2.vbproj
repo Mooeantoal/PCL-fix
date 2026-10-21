@@ -765,13 +765,6 @@
     <None Include="Resources\NAudio.dll" />
   </ItemGroup>
   <ItemGroup>
-    <!-- CurseForge API Key：由 CI 注入到 Resources\cf_api_key.txt，并复制到输出目录（与 EXE 同级） -->
-    <None Include="Resources\cf_api_key.txt" Condition="Exists('Resources/cf_api_key.txt')">
-      <Link>cf_api_key.txt</Link>
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </None>
-  </ItemGroup>
-  <ItemGroup>
     <Resource Include="Images\Heads\LTCat.jpg" />
   </ItemGroup>
   <ItemGroup>

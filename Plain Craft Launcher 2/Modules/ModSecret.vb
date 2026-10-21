@@ -11,8 +11,8 @@ Friend Module ModSecret
     'CurseForge API Key
     '优先读取环境变量 PCL_CURSEFORGE_API_KEY；未设置时读取程序目录下的 cf_api_key.txt（可由 CI 注入）
     Public CurseForgeAPIKey As String = LoadCurseForgeAPIKey()
-    '是否已提示过 CurseForge API Key 缺失，避免重复刷屏
-    Private CurseForgeKeyMissingWarned As Boolean = False
+    '是否已提示过 CurseForge API Key 缺失（0=未提示，1=已提示），避免重复刷屏
+    Private CurseForgeKeyMissingWarned As Integer = 0
     '用于匿名数据收集的腾讯云日志服务上报 URL，形如 https://{region}.cls.tencentcs.com/track?topic_id={topic_id}
     Public Const ClsBaseUrl As String = ""
 
@@ -61,7 +61,7 @@ Friend Module ModSecret
             '仅在密钥非空时注入，否则 CurseForge 会返回 403（API Key missing or invalid）
             If CurseForgeAPIKey <> "" Then
                 Req.Headers.Add("x-api-key", CurseForgeAPIKey)
-            ElseIf System.Threading.Interlocked.Exchange(CurseForgeKeyMissingWarned, True) = False Then
+            ElseIf System.Threading.Interlocked.Exchange(CurseForgeKeyMissingWarned, 1) = 0 Then
                 '只提示一次，避免反复刷屏
                 Logger.Warn("未配置 CurseForge API Key，无法加载 CurseForge 模组。" & vbCrLf &
                             "请设置环境变量 PCL_CURSEFORGE_API_KEY，或在程序目录下放置 cf_api_key.txt。", LogBehavior.Toast)

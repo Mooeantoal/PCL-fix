@@ -636,6 +636,7 @@ Public Class FormMain
     '移动
     Private Sub FormDragMove(sender As Object, e As MouseButtonEventArgs) Handles PanTitle.MouseLeftButtonDown, PanMsg.MouseLeftButtonDown
         On Error Resume Next
+        If e.ClickCount = 2 Then Return '双击交给 PanTitle_DoubleClick 处理最大化
         If sender.IsMouseDirectlyOver Then DragMove()
     End Sub
 
@@ -691,12 +692,12 @@ Public Class FormMain
             RestoreTop = Top
             RestoreWidth = Width
             RestoreHeight = Height
-            '最大化到全屏
-            Dim screenBounds = My.Computer.Screen.Bounds
-            Left = GetWPFSize(screenBounds.Left)
-            Top = GetWPFSize(screenBounds.Top)
-            Width = GetWPFSize(screenBounds.Width)
-            Height = GetWPFSize(screenBounds.Height)
+            '最大化到工作区（避开任务栏，DPI 正确；WPF 原生单位，无需 GetWPFSize）
+            Dim wa = System.Windows.SystemParameters.WorkArea
+            Left = wa.Left
+            Top = wa.Top
+            Width = wa.Width
+            Height = wa.Height
             '移除边距
             PanBack.Margin = New Thickness(0)
             BorderForm.Margin = New Thickness(0)
