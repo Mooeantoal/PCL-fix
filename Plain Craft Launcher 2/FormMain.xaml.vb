@@ -785,24 +785,38 @@ Public Class FormMain
         Return ""
     End Function
 
-    '把窗口几何吸附到指定分屏区域（WPF 单位）
+    '直接用设备像素定位窗口（绕过 WPF 的 DPI 换算，避免多屏/瞬态下贴边错位或溢出裁切）
+    <DllImport("user32.dll", SetLastError:=True)>
+    Private Shared Function SetWindowPos(hWnd As IntPtr, hWndInsertAfter As IntPtr, X As Integer, Y As Integer, cx As Integer, cy As Integer, uFlags As UInteger) As Boolean
+    End Function
+    Private Const SWP_NOZORDER As UInteger = &H4UI
+    Private Const SWP_NOACTIVATE As UInteger = &H10UI
+    Private Const SWP_FRAMECHANGED As UInteger = &H20UI
+
+    '把窗口几何吸附到指定分屏区域：用设备像素 SetWindowPos 直接定位（绕过 WPF 的 DPI 换算），
+    '并使用光标所在屏（与 DetectSnapZone 一致），避免窗口自身屏与光标屏不一致导致跨屏吸附错位/裁切。
     Private Sub ApplySnapGeometry(zone As String)
-        '使用窗口自身所在显示器的 WorkingArea（与 WM_GETMINMAXINFO 取屏一致），
-        '避免拖到另一屏边缘时几何与 OS 尺寸钳制所用屏幕不一致导致贴边错位/翻转
         Dim hwnd = New System.Windows.Interop.WindowInteropHelper(Me).Handle
-        Dim scr = System.Windows.Forms.Screen.FromHandle(hwnd)
+        If hwnd = IntPtr.Zero Then Return
+        If WindowState = WindowState.Maximized Then WindowState = WindowState.Normal
+        Me.MinWidth = 0 : Me.MinHeight = 0 '放开最小尺寸，确保 SetWindowPos 精确贴边（_Up 末尾恢复 400/300）
+        Dim cur = GetCursorPixel()
+        Dim scr = System.Windows.Forms.Screen.FromPoint(New System.Drawing.Point(CInt(cur.X), CInt(cur.Y)))
         If scr Is Nothing Then Return
-        Dim s = DpiScale()
-        Dim wa = scr.WorkingArea
-        Dim L = wa.Left / s.X, T = wa.Top / s.Y, W = wa.Width / s.X, H = wa.Height / s.Y
+        Dim wa = scr.WorkingArea '设备像素
+        Dim L = wa.Left, T = wa.Top, W = wa.Width, H = wa.Height
+        Dim rL As Integer, rT As Integer, rW As Integer, rH As Integer
         Select Case zone
-            Case "Left" : Left = L : Top = T : Width = W / 2 : Height = H
-            Case "Right" : Left = L + W / 2 : Top = T : Width = W / 2 : Height = H
-            Case "TopLeft" : Left = L : Top = T : Width = W / 2 : Height = H / 2
-            Case "TopRight" : Left = L + W / 2 : Top = T : Width = W / 2 : Height = H / 2
-            Case "BottomLeft" : Left = L : Top = T + H / 2 : Width = W / 2 : Height = H / 2
-            Case "BottomRight" : Left = L + W / 2 : Top = T + H / 2 : Width = W / 2 : Height = H / 2
+            Case "Left"        : rL = L : rT = T : rW = W \ 2 : rH = H
+            Case "Right"       : rL = L + W \ 2 : rT = T : rW = W \ 2 : rH = H
+            Case "TopLeft"     : rL = L : rT = T : rW = W \ 2 : rH = H \ 2
+            Case "TopRight"    : rL = L + W \ 2 : rT = T : rW = W \ 2 : rH = H \ 2
+            Case "BottomLeft"  : rL = L : rT = T + H \ 2 : rW = W \ 2 : rH = H \ 2
+            Case "BottomRight" : rL = L + W \ 2 : rT = T + H \ 2 : rW = W \ 2 : rH = H \ 2
+            Case Else : Return
         End Select
+        'WM_GETMINMAXINFO 已把 ptMaxTrackSize 放宽到虚拟屏，跨屏吸附不会被钳；设备像素定位不受 DPI 换算影响
+        SetWindowPos(hwnd, IntPtr.Zero, rL, rT, rW, rH, SWP_NOZORDER Or SWP_NOACTIVATE Or SWP_FRAMECHANGED)
     End Sub
 
     '实时吸附预览框：拖到边缘冻结时显示半透明矩形，提示将吸附到的区域（模拟 Windows 快照辅助）
@@ -827,27 +841,26 @@ Public Class FormMain
     End Sub
     Private Sub ShowSnapPreview(zone As String)
         EnsureSnapPreview()
-        Dim hwnd = New System.Windows.Interop.WindowInteropHelper(Me).Handle
-        Dim scr = System.Windows.Forms.Screen.FromHandle(hwnd)
-        If scr Is Nothing Then Return
-        Dim s = DpiScale()
-        Dim wa = scr.WorkingArea
-        Dim L = wa.Left / s.X, T = wa.Top / s.Y, W = wa.Width / s.X, H = wa.Height / s.Y
-        Dim rL = L, rT = T, rW = W, rH = H
-        Select Case zone
-            Case "Top" : rL = L : rT = T : rW = W : rH = H
-            Case "Left" : rW = W / 2
-            Case "Right" : rL = L + W / 2 : rW = W / 2
-            Case "TopLeft" : rW = W / 2 : rH = H / 2
-            Case "TopRight" : rL = L + W / 2 : rW = W / 2 : rH = H / 2
-            Case "BottomLeft" : rT = T + H / 2 : rW = W / 2 : rH = H / 2
-            Case "BottomRight" : rL = L + W / 2 : rT = T + H / 2 : rW = W / 2 : rH = H / 2
-        End Select
-        _snapPreview.Left = rL
-        _snapPreview.Top = rT
-        _snapPreview.Width = rW
-        _snapPreview.Height = rH
         If Not _snapPreview.IsVisible Then _snapPreview.Show()
+        Dim phwnd = New System.Windows.Interop.WindowInteropHelper(_snapPreview).Handle
+        If phwnd = IntPtr.Zero Then Return
+        '用光标所在屏（与 DetectSnapZone/ApplySnapGeometry 一致），避免副屏吸附预览错位
+        Dim cur = GetCursorPixel()
+        Dim scr = System.Windows.Forms.Screen.FromPoint(New System.Drawing.Point(CInt(cur.X), CInt(cur.Y)))
+        If scr Is Nothing Then Return
+        Dim wa = scr.WorkingArea '设备像素
+        Dim L = wa.Left, T = wa.Top, W = wa.Width, H = wa.Height
+        Dim rL As Integer, rT As Integer, rW As Integer, rH As Integer
+        Select Case zone
+            Case "Top"        : rL = L : rT = T : rW = W : rH = H
+            Case "Left"       : rW = W \ 2
+            Case "Right"      : rL = L + W \ 2 : rW = W \ 2
+            Case "TopLeft"    : rW = W \ 2 : rH = H \ 2
+            Case "TopRight"   : rL = L + W \ 2 : rW = W \ 2 : rH = H \ 2
+            Case "BottomLeft" : rT = T + H \ 2 : rW = W \ 2 : rH = H \ 2
+            Case "BottomRight": rL = L + W \ 2 : rT = T + H \ 2 : rW = W \ 2 : rH = H \ 2
+        End Select
+        SetWindowPos(phwnd, IntPtr.Zero, rL, rT, rW, rH, SWP_NOZORDER Or SWP_NOACTIVATE Or SWP_FRAMECHANGED)
     End Sub
     Private Sub HideSnapPreview()
         If _snapPreview IsNot Nothing AndAlso _snapPreview.IsVisible Then _snapPreview.Hide()
@@ -1343,10 +1356,10 @@ End Sub
                 mmi.ptMaxPosition.Y = wa.Top
                 mmi.ptMaxSize.X = wa.Width
                 mmi.ptMaxSize.Y = wa.Height
-                '允许普通态窗口撑满所在显示器工作区：否则 1/2 分屏按整屏高度设置 Height 时，
-                '会被 OS 默认 ptMaxTrackSize（常基于主显示器）钳制，导致上下留边、与最大化表现不一致
-                mmi.ptMaxTrackSize.X = wa.Width
-                mmi.ptMaxTrackSize.Y = wa.Height
+                'ptMaxTrackSize 放宽到虚拟屏：吸附用 SetWindowPos 直接定位（设备像素），跨屏吸附不会被原显示器工作区钳制
+                Dim vs = System.Windows.Forms.SystemInformation.VirtualScreen
+                mmi.ptMaxTrackSize.X = vs.Width
+                mmi.ptMaxTrackSize.Y = vs.Height
                 Marshal.StructureToPtr(mmi, lParam, True)
             End If
             handled = True
