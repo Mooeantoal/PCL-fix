@@ -654,13 +654,83 @@ Public Class FormMain
         PanForm.Height = BorderForm.ActualHeight + 0.001
         PanMain.Width = PanForm.Width
         PanMain.Height = Math.Max(0, PanForm.Height - PanTitle.ActualHeight)
-        If WindowState = WindowState.Maximized Then WindowState = WindowState.Normal '修复 #1938
     End Sub
 
     '最小化
     Private Sub BtnTitleMin_Click() Handles BtnTitleMin.Click
         WindowState = WindowState.Minimized
     End Sub
+
+    '最大化/还原
+    Private RestoreLeft As Double = 0
+    Private RestoreTop As Double = 0
+    Private RestoreWidth As Double = 0
+    Private RestoreHeight As Double = 0
+    Private IsMaximized As Boolean = False
+
+    Private Sub BtnTitleMax_Click() Handles BtnTitleMax.Click
+        ToggleMaximize()
+    End Sub
+
+    Private Sub PanTitle_DoubleClick(sender As Object, e As MouseButtonEventArgs) Handles PanTitle.MouseLeftButtonDown
+    '双击标题栏最大化（排除按钮区域）
+    If e.ClickCount = 2 Then
+        Dim pos = e.GetPosition(PanTitle)
+        '检查是否点击在按钮区域（右侧约 90px）
+        If pos.X < PanTitle.ActualWidth - 90 Then
+            ToggleMaximize()
+        End If
+    End If
+    End Sub
+
+    Private Sub ToggleMaximize()
+        On Error Resume Next
+        If Not IsMaximized Then
+            '保存当前状态
+            RestoreLeft = Left
+            RestoreTop = Top
+            RestoreWidth = Width
+            RestoreHeight = Height
+            '最大化到工作区
+            Dim workArea = SystemParameters.WorkArea
+            Left = workArea.Left
+            Top = workArea.Top
+            Width = workArea.Width
+            Height = workArea.Height
+            '移除圆角
+            RectForm.RadiusX = 0
+            RectForm.RadiusY = 0
+            '隐藏调整大小控件
+            SetResizersVisibility(False)
+            IsMaximized = True
+            BtnTitleMax.Logo = "F1 M2,0 L0,2 8,10 0,18 2,20 10,12 18,20 20,18 12,10 20,2 18,0 10,8 2,0Z"
+        Else
+            '还原
+            Left = RestoreLeft
+            Top = RestoreTop
+            Width = RestoreWidth
+            Height = RestoreHeight
+            '恢复圆角
+            RectForm.RadiusX = 6
+            RectForm.RadiusY = 6
+            '显示调整大小控件
+            SetResizersVisibility(True)
+            IsMaximized = False
+            BtnTitleMax.Logo = "F1 M0,0 h18 v2 h-18 v-2 Z M0,16 h18 v2 h-18 v-2 Z M0,0 v18 h2 v-18 h-2 Z M16,0 v18 h2 v-18 h-2 Z"
+        End If
+    End Sub
+
+Private Sub SetResizersVisibility(visible As Boolean)
+    Dim v = If(visible, Visibility.Visible, Visibility.Collapsed)
+    ResizerT.Visibility = v
+    ResizerB.Visibility = v
+    ResizerL.Visibility = v
+    ResizerR.Visibility = v
+    ResizerLT.Visibility = v
+    ResizerLB.Visibility = v
+    ResizerRT.Visibility = v
+    ResizerRB.Visibility = v
+End Sub
 
     '背景图片与标题栏
     Public Shared Sub UpdateBackgroundAndTitleBar(Value) '从设置更新
