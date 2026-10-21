@@ -22,23 +22,24 @@ jobs:
       - name: Setup MSBuild
         uses: microsoft/setup-msbuild@v2
 
-      # 密钥通过环境变量传入，避免被写进命令行日志
-      - name: Set CurseForge API Key
+      # CurseForge API Key 通过环境变量传入；构建时注入 ModSecret.vb 的默认值，
+      # 使打出的 exe 自带 Key（仓库源码仍保持空串，运行时环境变量仍可覆盖），不再生成明文 sidecar 文件
+      - name: Inject CurseForge API Key
         shell: pwsh
         env:
-          CF_API_KEY: ${{ secrets.PCL_CURSEFORGE_API_KEY }}
+          CF_KEY: ${{ secrets.PCL_CURSEFORGE_API_KEY }}
         run: |
           $ErrorActionPreference = "Stop"
-          $keyFile = "Plain Craft Launcher 2/Resources/cf_api_key.txt"
-          $key = $env:CF_API_KEY
+          $key = $env:CF_KEY
           if ([string]::IsNullOrWhiteSpace($key)) {
-            Write-Output "::error::未配置 Secret PCL_CURSEFORGE_API_KEY，无法构建可用的 CurseForge 模组搜索功能。请在仓库 Settings → Secrets and variables → Actions 中添加该 Secret。"
-            exit 1
+            Write-Output "::warning::未配置 Secret PCL_CURSEFORGE_API_KEY，CurseForge 模组搜索将不可用。"
+          } else {
+            $file = "Plain Craft Launcher 2/Modules/ModSecret.vb"
+            $c = [System.IO.File]::ReadAllText($file)
+            $c = $c -replace 'If\(Environment\.GetEnvironmentVariable\("PCL_CURSEFORGE_API_KEY"\), ""\)', "If(Environment.GetEnvironmentVariable(`"PCL_CURSEFORGE_API_KEY`"), `"$($key.Trim())`")"
+            [System.IO.File]::WriteAllText($file, $c, (New-Object System.Text.UTF8Encoding($false)))
+            Write-Output "CurseForge API Key 已注入 ModSecret.vb（不打印内容）"
           }
-          $key = $key.Trim()
-          # 以无 BOM 的 UTF-8 写入，避免运行时读到的密钥首部带有 BOM 字符
-          [System.IO.File]::WriteAllText($keyFile, $key, (New-Object System.Text.UTF8Encoding($false)))
-          Write-Output "CurseForge API Key 已写入 $keyFile （长度 $($key.Length)，不打印内容）"
 
       # 微软登录 ClientId 通过环境变量传入；构建时注入 ModSecret.vb 的默认值，
       # 使打出的 exe 自带 ID（仓库源码仍保持空串，运行时环境变量仍可覆盖）
@@ -73,31 +74,18 @@ jobs:
           Copy-Item "Plain Craft Launcher 2/Resources/*.dll" $out -Force
           Copy-Item "Plain Craft Launcher 2/Resources/*.jar" $out -Force
           Copy-Item "PCLCS/Launch/*.jar" $out -Force
-          # 密钥文件必须与 EXE 同级（Paths.Base 指向 EXE 所在目录）
-          $keyFile = "Plain Craft Launcher 2/Resources/cf_api_key.txt"
-          if (Test-Path $keyFile) {
-            Copy-Item $keyFile $out -Force
-            Write-Output "CurseForge API Key 已复制到输出目录"
-          } else {
-            Write-Output "::warning::未找到 $keyFile，产物将不含 CurseForge API Key"
-          }
           Write-Output "runtime files copied"
 
       - name: Verify artifact
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
-          $keyOut = "Plain Craft Launcher 2/bin/cf_api_key.txt"
-          if (-Not (Test-Path $keyOut)) {
-            Write-Output "::error::产物中缺少 $keyOut，CurseForge 模组搜索将返回 403"
+          $exes = Get-ChildItem "Plain Craft Launcher 2/bin/*.exe" -ErrorAction SilentlyContinue
+          if ($exes.Count -eq 0) {
+            Write-Output "::error::产物中缺少 exe，构建可能失败"
             exit 1
           }
-          $content = ([System.IO.File]::ReadAllText($keyOut)).Trim()
-          if ($content.Length -lt 10) {
-            Write-Output "::error::$keyOut 内容为空或过短，CurseForge API Key 无效"
-            exit 1
-          }
-          Write-Output "产物校验通过：$keyOut 存在且非空（长度 $($content.Length)）"
+          Write-Output "产物校验通过：$($exes.Count) 个 exe 已生成"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4

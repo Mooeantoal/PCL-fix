@@ -8,9 +8,8 @@ Friend Module ModSecret
     Public Const RegFolder As String = "PCLDebug"
     '用于微软登录的 ClientId
     Public OAuthClientId As String = If(Environment.GetEnvironmentVariable("PCL_MS_CLIENT_ID"), "")
-    'CurseForge API Key
-    '优先读取环境变量 PCL_CURSEFORGE_API_KEY；未设置时读取程序目录下的 cf_api_key.txt（可由 CI 注入）
-    Public CurseForgeAPIKey As String = LoadCurseForgeAPIKey()
+    'CurseForge API Key（仓库源码保持空串，CI 构建时注入字面值到默认参数，运行时环境变量仍可覆盖）
+    Public CurseForgeAPIKey As String = If(Environment.GetEnvironmentVariable("PCL_CURSEFORGE_API_KEY"), "")
     '是否已提示过 CurseForge API Key 缺失（0=未提示，1=已提示），避免重复刷屏
     Private CurseForgeKeyMissingWarned As Integer = 0
     '用于匿名数据收集的腾讯云日志服务上报 URL，形如 https://{region}.cls.tencentcs.com/track?topic_id={topic_id}
@@ -18,26 +17,6 @@ Friend Module ModSecret
 
 #Region "网络鉴权"
 
-    ''' <summary>
-    ''' 读取 CurseForge API Key。
-    ''' 优先读取环境变量 PCL_CURSEFORGE_API_KEY；
-    ''' 若未设置，则读取程序目录下的 cf_api_key.txt（构建时可由 CI 注入该文件）。
-    ''' </summary>
-    Private Function LoadCurseForgeAPIKey() As String
-        Dim Result As String = If(Environment.GetEnvironmentVariable("PCL_CURSEFORGE_API_KEY"), "")
-        If Result <> "" Then Return Result.Trim()
-        '回退：读取程序目录下的密钥文件
-        Try
-            Dim KeyFile As String = Paths.Base & "cf_api_key.txt"
-            If FileUtils.Exists(KeyFile) Then
-                Dim Content As String = FileUtils.TryReadAsString(KeyFile)
-                If Not String.IsNullOrEmpty(Content) Then Result = Content.Trim()
-            End If
-        Catch ex As Exception
-            Logger.Warn(ex, "读取 CurseForge API Key 文件失败")
-        End Try
-        Return Result
-    End Function
 
     Friend Function SecretCdnSign(UrlWithMark As String) As String
         If Not UrlWithMark.EndsWithF("{CDN}") Then Return UrlWithMark
