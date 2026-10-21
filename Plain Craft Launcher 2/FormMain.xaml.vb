@@ -634,12 +634,58 @@ Public Class FormMain
         EndProgram(True)
     End Sub
 
-    '移动
+    '移动（自定义拖拽 + Aero Snap；单击不还原，双击由 PanTitle_DoubleClick 处理）
+    Private _dragging As Boolean = False
+    Private _dragMoved As Boolean = False
+    Private _dragOffset As System.Windows.Point = New System.Windows.Point(0, 0) '光标相对窗口左上角的偏移（WPF 单位）
+    Private _dragScreenStart As System.Windows.Point = New System.Windows.Point(0, 0) '拖拽起点（屏幕像素）
+    Private _snapZone As String = ""
+
     Private Sub FormDragMove(sender As Object, e As MouseButtonEventArgs) Handles PanTitle.MouseLeftButtonDown, PanMsg.MouseLeftButtonDown
         On Error Resume Next
         If e.ClickCount = 2 Then Return '双击交给 PanTitle_DoubleClick 处理最大化/还原
-        If WindowState = WindowState.Maximized Then WindowState = WindowState.Normal '最大化态拖拽先还原（模拟 Windows 行为）
-        If sender.IsMouseDirectlyOver Then DragMove()
+        If Not sender.IsMouseDirectlyOver Then Return '点在子按钮上不拖拽
+        _dragging = True
+        _dragMoved = False
+        _snapZone = ""
+        _dragOffset = e.GetPosition(Me)
+        _dragScreenStart = GetCursorPixel()
+        If TypeOf sender Is UIElement Then CType(sender, UIElement).CaptureMouse()
+    End Sub
+
+    Private Sub FormDragMove_Move(sender As Object, e As MouseEventArgs) Handles PanTitle.MouseMove, PanMsg.MouseMove
+        On Error Resume Next
+        If Not _dragging OrElse System.Windows.Input.Mouse.LeftButton <> System.Windows.Input.MouseButtonState.Pressed Then Return
+        Dim cur = GetCursorPixel()
+        If Not _dragMoved Then
+            If Math.Abs(cur.X - _dragScreenStart.X) < 4 AndAlso Math.Abs(cur.Y - _dragScreenStart.Y) < 4 Then Return
+            _dragMoved = True
+            If WindowState = WindowState.Maximized Then WindowState = WindowState.Normal '最大化态拖拽先还原（模拟 Windows 行为）
+        End If
+        _snapZone = DetectSnapZone(cur) '接触屏幕边缘/角触发对应分屏
+        If _snapZone = "" Then '未触分屏区才跟随光标；触区则冻结等待松开吸附
+            Dim s = DpiScale()
+            Left = cur.X / s.X - _dragOffset.X
+            Top = cur.Y / s.Y - _dragOffset.Y
+        End If
+    End Sub
+
+    Private Sub FormDragMove_Up(sender As Object, e As MouseButtonEventArgs) Handles PanTitle.MouseLeftButtonUp, PanMsg.MouseLeftButtonUp
+        On Error Resume Next
+        If Not _dragging Then Return
+        _dragging = False
+        If TypeOf sender Is UIElement Then CType(sender, UIElement).ReleaseMouseCapture()
+        If Not _dragMoved Then Return
+        If _snapZone = "Top" Then
+            WindowState = WindowState.Maximized '接触上边缘 → 最大化
+        ElseIf _snapZone <> "" Then
+            ApplySnapGeometry(_snapZone) '左右 1/2 / 四角 1/4 分屏
+            ApplyWindowChrome(True) '去圆角/阴影，但 WindowState 仍为 Normal（最大化按钮保持窗口形态）
+        Else
+            ApplyWindowChrome(False) '落到中间恢复圆角/阴影
+        End If
+        _snapZone = ""
+        _dragMoved = False
     End Sub
 
     '改变大小
@@ -681,14 +727,71 @@ Public Class FormMain
 
     '窗口状态变化：最大化时去圆角/边距/缩放条，否则恢复
     Private Sub FormMain_StateChanged(sender As Object, e As EventArgs) Handles Me.StateChanged
-        Dim maximized = (WindowState = WindowState.Maximized)
+        ApplyWindowChrome(WindowState = WindowState.Maximized)
+    End Sub
+
+    '统一设置窗口装饰（圆角/边距/缩放条/最大化按钮图标）
+    Private Sub ApplyWindowChrome(maximized As Boolean)
         RectForm.RadiusX = If(maximized, 0, 6)
         RectForm.RadiusY = If(maximized, 0, 6)
         PanBack.Margin = If(maximized, New Thickness(0), New Thickness(10))
         BorderForm.Margin = If(maximized, New Thickness(0), New Thickness(8))
         SetResizersVisibility(Not maximized)
-        BtnTitleMax.Logo = If(maximized, "F1 M4,4 h14 v14 h-14 z M2,2 h14 v14 h-14 z", "F1 M2,2 h16 v16 h-16 z")
+        BtnTitleMax.Logo = If(WindowState = WindowState.Maximized, "F1 M4,4 h14 v14 h-14 z M2,2 h14 v14 h-14 z", "F1 M2,2 h16 v16 h-16 z")
     End Sub
+
+    'Aero Snap 区域检测（屏幕像素坐标，阈值 6px）
+    Private Function DetectSnapZone(cur As System.Windows.Point) As String
+        Dim scr = System.Windows.Forms.Screen.FromPoint(New System.Drawing.Point(CInt(cur.X), CInt(cur.Y)))
+        If scr Is Nothing Then Return ""
+        Dim b = scr.Bounds
+        Dim t = 6
+        Dim inLeft = cur.X <= b.Left + t
+        Dim inRight = cur.X >= b.Right - t
+        Dim inTop = cur.Y <= b.Top + t
+        Dim inBottom = cur.Y >= b.Bottom - t
+        If inTop AndAlso inLeft Then Return "TopLeft"
+        If inTop AndAlso inRight Then Return "TopRight"
+        If inBottom AndAlso inLeft Then Return "BottomLeft"
+        If inBottom AndAlso inRight Then Return "BottomRight"
+        If inTop Then Return "Top"
+        If inLeft Then Return "Left"
+        If inRight Then Return "Right"
+        Return ""
+    End Function
+
+    '把窗口几何吸附到指定分屏区域（WPF 单位）
+    Private Sub ApplySnapGeometry(zone As String)
+        Dim cur = System.Windows.Forms.Cursor.Position
+        Dim scr = System.Windows.Forms.Screen.FromPoint(cur)
+        If scr Is Nothing Then Return
+        Dim s = DpiScale()
+        Dim wa = scr.WorkingArea
+        Dim L = wa.Left / s.X, T = wa.Top / s.Y, W = wa.Width / s.X, H = wa.Height / s.Y
+        Select Case zone
+            Case "Left" : Left = L : Top = T : Width = W / 2 : Height = H
+            Case "Right" : Left = L + W / 2 : Top = T : Width = W / 2 : Height = H
+            Case "TopLeft" : Left = L : Top = T : Width = W / 2 : Height = H / 2
+            Case "TopRight" : Left = L + W / 2 : Top = T : Width = W / 2 : Height = H / 2
+            Case "BottomLeft" : Left = L : Top = T + H / 2 : Width = W / 2 : Height = H / 2
+            Case "BottomRight" : Left = L + W / 2 : Top = T + H / 2 : Width = W / 2 : Height = H / 2
+        End Select
+    End Sub
+
+    '当前窗口 DPI 缩放（设备/布局单位）
+    Private Function DpiScale() As System.Windows.Point
+        Dim src = System.Windows.PresentationSource.FromVisual(Me)
+        If src IsNot Nothing AndAlso src.CompositionTarget IsNot Nothing Then
+            Return New System.Windows.Point(src.CompositionTarget.TransformToDevice.M11, src.CompositionTarget.TransformToDevice.M22)
+        End If
+        Return New System.Windows.Point(1, 1)
+    End Function
+
+    '当前鼠标屏幕像素坐标
+    Private Function GetCursorPixel() As System.Windows.Point
+        Dim c = System.Windows.Forms.Cursor.Position
+        Return New System.Windows.Point(c.X, c.Y)
+    End Function
 
 Private Sub SetResizersVisibility(visible As Boolean)
     Dim v = If(visible, Visibility.Visible, Visibility.Collapsed)
