@@ -649,19 +649,23 @@ Public Class FormMain
         _dragging = True
         _dragMoved = False
         _snapZone = ""
-        '以"可视窗口左上角 + 还原后尺寸"为基准算拖拽偏移：
-        '从最大化(可能很宽)拖出时，把鼠标钳制在还原窗口的标题栏范围内，
-        '避免窗口瞬间缩小导致鼠标跑到标题栏外、窗口严重瞬移/偏移。
         Dim cur = GetCursorPixel()
         Dim s = DpiScale()
         Dim curWpf = New System.Windows.Point(cur.X / s.X, cur.Y / s.Y)
-        Dim visTopLeft = Me.PointToScreen(New System.Windows.Point(0, 0))
-        Dim offX = curWpf.X - visTopLeft.X
-        Dim offY = curWpf.Y - visTopLeft.Y
-        Dim rb = Me.RestoreBounds
-        offX = Math.Max(0, Math.Min(offX, Math.Max(1, rb.Width - 1)))
-        offY = Math.Max(0, Math.Min(offY, Math.Max(1, PanTitle.ActualHeight)))
-        _dragOffset = New System.Windows.Point(offX, offY)
+        Dim off As System.Windows.Point
+        If WindowState = WindowState.Maximized Then
+            '最大化态拖出：以窗口左上角(Me.Left/Top，与 Window.Left 同单位)算光标相对偏移，
+            '并钳制到还原窗口范围内，避免窗口瞬间缩小导致鼠标跑到标题栏外、窗口严重瞬移/偏移。
+            '注意：不能用 PointToScreen，其在部分 DPI 下尺度与 Window.Left 不一致。
+            off = New System.Windows.Point(curWpf.X - Me.Left, curWpf.Y - Me.Top)
+            Dim rb = Me.RestoreBounds
+            off.X = Math.Max(0, Math.Min(off.X, Math.Max(1, rb.Width - 1)))
+            off.Y = Math.Max(0, Math.Min(off.Y, Math.Max(1, PanTitle.ActualHeight)))
+        Else
+            '窗口态：光标相对窗口左上角（WPF 单位），与 move 中 cur/s - offset 完全自洽（沿用原可正常工作算法）
+            off = e.GetPosition(Me)
+        End If
+        _dragOffset = off
         _dragScreenStart = cur
         If TypeOf sender Is UIElement Then CType(sender, UIElement).CaptureMouse()
     End Sub
