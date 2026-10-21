@@ -28,6 +28,19 @@ Public Class MyIconButton
         End Set
     End Property
 
+    '是否以描边（而非填充）渲染图标；描边粗细见 LogoStrokeThickness（默认与最小化按钮一致为 2）
+    Public Property LogoStroke As Boolean = False
+    Private _LogoStrokeThickness As Double = 2
+    Public Property LogoStrokeThickness() As Double
+        Get
+            Return _LogoStrokeThickness
+        End Get
+        Set(value As Double)
+            _LogoStrokeThickness = value
+            If Not IsNothing(Path) Then Path.StrokeThickness = value
+        End Set
+    End Property
+
     Public Enum Themes
         Color
         White
@@ -92,52 +105,70 @@ Public Class MyIconButton
     '务必放在 IsMouseDown 更新之后
     Private Const AnimationColorIn As Integer = 120
     Private Const AnimationColorOut As Integer = 150
+    '当前图标颜色（区分填充/描边模式）
+    Private Function CurPathBrush() As Brush
+        If LogoStroke Then Return Path.Stroke Else Return Path.Fill
+    End Function
+    Private Sub SetPathBrush(b As Brush)
+        If LogoStroke Then
+            Path.Fill = Nothing
+            Path.Stroke = b
+            Path.StrokeThickness = LogoStrokeThickness
+        Else
+            Path.Stroke = Nothing
+            Path.Fill = b
+        End If
+    End Sub
+
     Public Sub RefreshAnim() Handles Me.MouseEnter, Me.MouseLeave, Me.Loaded, Me.IsEnabledChanged
         Try
+            Dim Prop = If(LogoStroke, Shape.StrokeProperty, Shape.FillProperty)
             If IsLoaded AndAlso AniControlEnabled = 0 Then '防止默认属性变更触发动画
                 If PanBack.Background Is Nothing Then PanBack.Background = New MyColor(0, 255, 255, 255)
-                If Path.Fill Is Nothing Then
+                If (LogoStroke AndAlso Path.Stroke Is Nothing) OrElse (Not LogoStroke AndAlso Path.Fill Is Nothing) Then
                     Select Case Theme
                         Case Themes.Red
-                            Path.Fill = New MyColor(160, 255, 76, 76)
+                            SetPathBrush(New MyColor(160, 255, 76, 76))
                         Case Themes.Black
-                            Path.Fill = New MyColor(160, 0, 0, 0)
+                            SetPathBrush(New MyColor(160, 0, 0, 0))
                         Case Themes.Custom
-                            Path.Fill = New MyColor(160, Foreground)
+                            SetPathBrush(New MyColor(160, Foreground))
+                        Case Else
+                            SetPathBrush(If(Theme = Themes.White, New MyColor(160, 255, 255, 255), New MyColor(160, 128, 128, 128)))
                     End Select
                 End If
                 Dim AnimList As New List(Of AniData)
                 If Not IsEnabled Then
-                    AnimList.Add(AaColor(Path, Shape.FillProperty, "ColorBrushGray5", AnimationColorIn))
+                    AnimList.Add(AaColor(Path, Prop, "ColorBrushGray5", AnimationColorIn))
                 ElseIf IsMouseOver Then '指向
                     Select Case Theme
                         Case Themes.Color
-                            AnimList.Add(AaColor(Path, Shape.FillProperty, "ColorBrush2", AnimationColorIn))
+                            AnimList.Add(AaColor(Path, Prop, "ColorBrush2", AnimationColorIn))
                         Case Themes.White
                             AnimList.Add(AaColor(PanBack, BackgroundProperty, New MyColor(50, 255, 255, 255) - PanBack.Background, AnimationColorIn))
                         Case Themes.Red
-                            AnimList.Add(AaColor(Path, Shape.FillProperty, New MyColor(255, 76, 76) - Path.Fill, AnimationColorIn))
+                            AnimList.Add(AaColor(Path, Prop, New MyColor(255, 76, 76) - CurPathBrush(), AnimationColorIn))
                         Case Themes.Black
-                            AnimList.Add(AaColor(Path, Shape.FillProperty, New MyColor(230, 0, 0, 0) - Path.Fill, AnimationColorIn))
+                            AnimList.Add(AaColor(Path, Prop, New MyColor(230, 0, 0, 0) - CurPathBrush(), AnimationColorIn))
                         Case Themes.Custom
-                            AnimList.Add(AaColor(Path, Shape.FillProperty, New MyColor(255, Foreground) - Path.Fill, AnimationColorIn))
+                            AnimList.Add(AaColor(Path, Prop, New MyColor(255, Foreground) - CurPathBrush(), AnimationColorIn))
                     End Select
                 Else '普通
                     Select Case Theme
                         Case Themes.Color
-                            AnimList.Add(AaColor(Path, Shape.FillProperty, "ColorBrush4", AnimationColorOut))
+                            AnimList.Add(AaColor(Path, Prop, "ColorBrush4", AnimationColorOut))
                             PanBack.Background = New MyColor(0, 255, 255, 255)
                         Case Themes.White
-                            AnimList.Add(AaColor(Path, Shape.FillProperty, "ColorBrush8", AnimationColorOut))
+                            AnimList.Add(AaColor(Path, Prop, "ColorBrush8", AnimationColorOut))
                             AnimList.Add(AaColor(PanBack, BackgroundProperty, New MyColor(0, 255, 255, 255) - PanBack.Background, AnimationColorOut))
                         Case Themes.Red
-                            AnimList.Add(AaColor(Path, Shape.FillProperty, New MyColor(160, 255, 76, 76) - Path.Fill, AnimationColorOut))
+                            AnimList.Add(AaColor(Path, Prop, New MyColor(160, 255, 76, 76) - CurPathBrush(), AnimationColorOut))
                             PanBack.Background = New MyColor(0, 255, 255, 255)
                         Case Themes.Black
-                            AnimList.Add(AaColor(Path, Shape.FillProperty, New MyColor(160, 0, 0, 0) - Path.Fill, AnimationColorOut))
+                            AnimList.Add(AaColor(Path, Prop, New MyColor(160, 0, 0, 0) - CurPathBrush(), AnimationColorOut))
                             PanBack.Background = New MyColor(0, 255, 255, 255)
                         Case Themes.Custom
-                            AnimList.Add(AaColor(Path, Shape.FillProperty, New MyColor(160, Foreground) - Path.Fill, AnimationColorOut))
+                            AnimList.Add(AaColor(Path, Prop, New MyColor(160, Foreground) - CurPathBrush(), AnimationColorOut))
                             PanBack.Background = New MyColor(0, 255, 255, 255)
                     End Select
                 End If
@@ -147,18 +178,18 @@ Public Class MyIconButton
                 If IsEnabled Then
                     Select Case Theme
                         Case Themes.Color
-                            Path.SetResourceReference(Shape.FillProperty, "ColorBrush5")
+                            Path.Fill = Nothing : Path.SetResourceReference(Prop, "ColorBrush5")
                         Case Themes.White
-                            Path.SetResourceReference(Shape.FillProperty, "ColorBrush8")
+                            Path.Fill = Nothing : Path.SetResourceReference(Prop, "ColorBrush8")
                         Case Themes.Red
-                            Path.Fill = New MyColor(160, 255, 76, 76)
+                            SetPathBrush(New MyColor(160, 255, 76, 76))
                         Case Themes.Black
-                            Path.Fill = New MyColor(160, 0, 0, 0)
+                            SetPathBrush(New MyColor(160, 0, 0, 0))
                         Case Themes.Custom
-                            Path.Fill = New MyColor(160, Foreground)
+                            SetPathBrush(New MyColor(160, Foreground))
                     End Select
                 Else
-                    Path.SetResourceReference(Shape.FillProperty, "ColorBrushGray5")
+                    Path.Fill = Nothing : Path.SetResourceReference(Prop, "ColorBrushGray5")
                 End If
                 PanBack.Background = New MyColor(0, 255, 255, 255)
             End If
