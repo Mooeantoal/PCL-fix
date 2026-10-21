@@ -793,6 +793,31 @@ Public Class FormMain
     Private Const SWP_NOACTIVATE As UInteger = &H10UI
     Private Const SWP_FRAMECHANGED As UInteger = &H20UI
 
+    <DllImport("user32.dll")>
+    Private Shared Function MonitorFromPoint(pt As System.Drawing.Point, flags As UInteger) As IntPtr
+    End Function
+    <DllImport("shcore.dll")>
+    Private Shared Function GetDpiForMonitor(hmonitor As IntPtr, dpiType As Integer, ByRef dpiX As UInteger, ByRef dpiY As UInteger) As Integer
+    End Function
+    Private Const MONITOR_DEFAULTTONEAREST As UInteger = 2UI
+    Private Const MDT_EFFECTIVE_DPI As Integer = 0
+
+    '取某屏幕（设备像素点）的有效 DPI 缩放（device/WPF）。必须用目标显示器自身 DPI，
+    '不能改用窗口当前 DpiScale()：跨屏且 DPI 不同时窗口当前 DPI 仍是旧屏的，用它换算会把窗口摆到错误设备坐标。
+    Private Function GetScreenScale(pt As System.Windows.Point) As System.Windows.Point
+        Try
+            Dim hmon = MonitorFromPoint(New System.Drawing.Point(CInt(pt.X), CInt(pt.Y)), MONITOR_DEFAULTTONEAREST)
+            If hmon <> IntPtr.Zero Then
+                Dim dx As UInteger = 96, dy As UInteger = 96
+                If GetDpiForMonitor(hmon, MDT_EFFECTIVE_DPI, dx, dy) = 0 Then
+                    Return New System.Windows.Point(dx / 96.0, dy / 96.0)
+                End If
+            End If
+        Catch
+        End Try
+        Return DpiScale()
+    End Function
+
     '把窗口几何吸附到指定分屏区域：用设备像素 SetWindowPos 直接定位（绕过 WPF 的 DPI 换算），
     '并使用光标所在屏（与 DetectSnapZone 一致），避免窗口自身屏与光标屏不一致导致跨屏吸附错位/裁切。
     Private Sub ApplySnapGeometry(zone As String)
@@ -822,7 +847,7 @@ Public Class FormMain
         '把我摆好的精确吸附覆盖掉，导致时而偏移、大间隙、出屏裁切（即"时而有时而没有"）。
         '用当前 DPI 换算：在 DPI 变化被处理前，WPF 仍按当前 DPI 重应用，device = WPF×当前DPI = 原矩形；
         'DPI 变化后 WPF 会回读真实矩形自行纠正，缓存始终与真实位置一致。
-        Dim s = DpiScale()
+        Dim s = GetScreenScale(cur) '目标屏 DPI：跨屏且 DPI 不同时必须用目标屏，否则换算错位
         Me.Left = rL / s.X
         Me.Top = rT / s.Y
         Me.Width = rW / s.X
@@ -872,7 +897,7 @@ Public Class FormMain
         End Select
         SetWindowPos(phwnd, IntPtr.Zero, rL, rT, rW, rH, SWP_NOZORDER Or SWP_NOACTIVATE Or SWP_FRAMECHANGED)
         '同步预览窗自身的 WPF 坐标缓存，避免 WPF 后续重新应用旧坐标导致预览错位/跳动
-        Dim ps = DpiScale()
+        Dim ps = GetScreenScale(cur) '目标屏 DPI，跨屏不同 DPI 时避免预览错位
         _snapPreview.Left = rL / ps.X
         _snapPreview.Top = rT / ps.Y
         _snapPreview.Width = rW / ps.X
@@ -1372,7 +1397,14 @@ End Sub
                 mmi.ptMaxPosition.Y = wa.Top
                 mmi.ptMaxSize.X = wa.Width
                 mmi.ptMaxSize.Y = wa.Height
-                'ptMaxTrackSize 放宽到虚拟屏：吸附用 SetWindowPos 直接定位（设备像素），跨屏吸附不会被原显示器工作区钳制
+                '下限跟随 WPF 的 MinWidth/MinHeight（吸附时已被临时放开为 0）：
+                'ResizeMode=CanMinimize 会让 WPF 把 ptMinTrackSize 设成"当前窗口尺寸"，导致 OS 在 WM_GETMINMAXINFO
+                '把 SetWindowPos 的吸附矩形钳住、无法小于当前窗口——分屏 1/2、1/4 需要缩小，于是贴边不精确/出现间隙
+                '（最大化是涨大，被 ptMaxTrackSize=虚拟屏 允许，所以正常）。这里用目标屏 DPI 把 MinWidth/MinHeight 转成设备像素。
+                Dim sc = GetScreenScale(New System.Windows.Point(wa.Left + wa.Width / 2, wa.Top + wa.Height / 2))
+                mmi.ptMinTrackSize.X = CInt(Me.MinWidth * sc.X)
+                mmi.ptMinTrackSize.Y = CInt(Me.MinHeight * sc.Y)
+                '上限放宽到虚拟屏：吸附用 SetWindowPos 直接定位（设备像素），跨屏吸附不会被原显示器工作区钳制
                 Dim vs = System.Windows.Forms.SystemInformation.VirtualScreen
                 mmi.ptMaxTrackSize.X = vs.Width
                 mmi.ptMaxTrackSize.Y = vs.Height
