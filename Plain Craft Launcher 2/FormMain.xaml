@@ -6,7 +6,7 @@
     x:Name="WindMain" x:Class="FormMain" Style="{StaticResource MyWindow}"
     AllowDrop="True" Topmost="True" Title="Plain Craft Launcher　" AllowsTransparency="True" MinHeight="470" MinWidth="810" 
     ScrollViewer.VerticalScrollBarVisibility="Disabled" Icon="/Plain Craft Launcher 2;component/Images/icon.ico" WindowStyle="None" 
-    ResizeMode="CanResize" Background="{x:Null}" d:DesignWidth="870" d:DesignHeight="520" Width="850" Height="500" 
+    ResizeMode="CanMinimize" Background="{x:Null}" d:DesignWidth="870" d:DesignHeight="520" Width="850" Height="500" 
     RenderTransformOrigin="0.5,0.5">
     <Window.TaskbarItemInfo>
         <TaskbarItemInfo ThumbnailClipMargin="{Binding Margin, ElementName=PanForm}" />
@@ -106,9 +106,9 @@
                     <local:MyImage x:Name="ImgTitle" IsHitTestVisible="False" Stretch="UniformToFill" IsEnabled="False" RenderOptions.BitmapScalingMode="LowQuality" />
                     <local:MyIconButton x:Name="BtnTitleClose" HorizontalAlignment="Right" Height="28" VerticalAlignment="Center" Width="28" Margin="0,0,12,0" Theme="White" 
                                        LogoScale="0.72" Logo="F1 M2,0 L0,2 8,10 0,18 2,20 10,12 18,20 20,18 12,10 20,2 18,0 10,8 2,0Z" />
-                    <local:MyIconButton x:Name="BtnTitleMax" HorizontalAlignment="Right" Height="28" VerticalAlignment="Center" Width="28" Margin="0,0,28,0" Theme="White"
-                                       LogoScale="0.72" Logo="F1 M0,0 h18 v2 h-18 v-2 Z M0,16 h18 v2 h-18 v-2 Z M0,0 v18 h2 v-18 h-2 Z M16,0 v18 h2 v-18 h-2 Z" />        
-                    <local:MyIconButton x:Name="BtnTitleMin" HorizontalAlignment="Right" Height="28" VerticalAlignment="Center" Width="28" Margin="0,0,44,0" Theme="White" 
+                    <local:MyIconButton x:Name="BtnTitleMax" HorizontalAlignment="Right" Height="28" VerticalAlignment="Center" Width="28" Margin="0,0,44,0" Theme="White"
+                                       LogoScale="0.72" Logo="F1 M2,2 h16 v16 h-16 Z" />        
+                    <local:MyIconButton x:Name="BtnTitleMin" HorizontalAlignment="Right" Height="28" VerticalAlignment="Center" Width="28" Margin="0,0,76,0" Theme="White" 
                                        LogoScale="0.72" Logo="F1 M0,0 h15 v2 h-15 v-2 Z" />
                     <Grid x:Name="PanTitleMain" HorizontalAlignment="Left" Width="{Binding ActualWidth, ElementName=PanTitle, Mode=OneWay}">
                         <Grid.ColumnDefinitions>

@@ -1,5 +1,6 @@
 Imports System.ComponentModel
 Imports System.Windows.Interop
+Imports System.Runtime.InteropServices
 
 Public Class FormMain
 
@@ -636,7 +637,8 @@ Public Class FormMain
     '移动
     Private Sub FormDragMove(sender As Object, e As MouseButtonEventArgs) Handles PanTitle.MouseLeftButtonDown, PanMsg.MouseLeftButtonDown
         On Error Resume Next
-        If e.ClickCount = 2 Then Return '双击交给 PanTitle_DoubleClick 处理最大化
+        If e.ClickCount = 2 Then Return '双击交给 PanTitle_DoubleClick 处理最大化/还原
+        If WindowState = WindowState.Maximized Then WindowState = WindowState.Normal '最大化态拖拽先还原（模拟 Windows 行为）
         If sender.IsMouseDirectlyOver Then DragMove()
     End Sub
 
@@ -662,69 +664,30 @@ Public Class FormMain
         WindowState = WindowState.Minimized
     End Sub
 
-    '最大化/还原
-    Private RestoreLeft As Double = 0
-    Private RestoreTop As Double = 0
-    Private RestoreWidth As Double = 0
-    Private RestoreHeight As Double = 0
-    Private IsMaximized As Boolean = False
-
+    '最大化/还原（接入系统窗口状态，由 WM_GETMINMAXINFO 把最大化矩形约束到工作区）
     Private Sub BtnTitleMax_Click() Handles BtnTitleMax.Click
-        ToggleMaximize()
+        WindowState = If(WindowState = WindowState.Maximized, WindowState.Normal, WindowState.Maximized)
     End Sub
 
     Private Sub PanTitle_DoubleClick(sender As Object, e As MouseButtonEventArgs) Handles PanTitle.MouseLeftButtonDown
-    '双击标题栏最大化（排除按钮区域）
-    If e.ClickCount = 2 Then
-        Dim pos = e.GetPosition(PanTitle)
-        '检查是否点击在按钮区域（右侧约 90px）
-        If pos.X < PanTitle.ActualWidth - 90 Then
-            ToggleMaximize()
+        '双击标题栏最大化/还原（排除右侧按钮区域）
+        If e.ClickCount = 2 Then
+            Dim pos = e.GetPosition(PanTitle)
+            If pos.X < PanTitle.ActualWidth - 90 Then
+                WindowState = If(WindowState = WindowState.Maximized, WindowState.Normal, WindowState.Maximized)
+            End If
         End If
-    End If
     End Sub
 
-    Private Sub ToggleMaximize()
-        On Error Resume Next
-        If Not IsMaximized Then
-            '保存当前状态
-            RestoreLeft = Left
-            RestoreTop = Top
-            RestoreWidth = Width
-            RestoreHeight = Height
-            '最大化到工作区（避开任务栏，DPI 正确；WPF 原生单位，无需 GetWPFSize）
-            Dim wa = System.Windows.SystemParameters.WorkArea
-            Left = wa.Left
-            Top = wa.Top
-            Width = wa.Width
-            Height = wa.Height
-            '移除边距
-            PanBack.Margin = New Thickness(0)
-            BorderForm.Margin = New Thickness(0)
-            '移除圆角
-            RectForm.RadiusX = 0
-            RectForm.RadiusY = 0
-            '隐藏调整大小控件
-            SetResizersVisibility(False)
-            IsMaximized = True
-            BtnTitleMax.Logo = "F1 M4,4 h14 v14 h-14 z M2,2 h14 v14 h-14 z"
-        Else
-            '还原
-            Left = RestoreLeft
-            Top = RestoreTop
-            Width = RestoreWidth
-            Height = RestoreHeight
-            '恢复边距
-            PanBack.Margin = New Thickness(10)
-            BorderForm.Margin = New Thickness(8)
-            '恢复圆角
-            RectForm.RadiusX = 6
-            RectForm.RadiusY = 6
-            '显示调整大小控件
-            SetResizersVisibility(True)
-            IsMaximized = False
-            BtnTitleMax.Logo = "F1 M2,2 h16 v16 h-16 z"
-        End If
+    '窗口状态变化：最大化时去圆角/边距/缩放条，否则恢复
+    Private Sub FormMain_StateChanged(sender As Object, e As EventArgs) Handles Me.StateChanged
+        Dim maximized = (WindowState = WindowState.Maximized)
+        RectForm.RadiusX = If(maximized, 0, 6)
+        RectForm.RadiusY = If(maximized, 0, 6)
+        PanBack.Margin = If(maximized, New Thickness(0), New Thickness(10))
+        BorderForm.Margin = If(maximized, New Thickness(0), New Thickness(8))
+        SetResizersVisibility(Not maximized)
+        BtnTitleMax.Logo = If(maximized, "F1 M4,4 h14 v14 h-14 z M2,2 h14 v14 h-14 z", "F1 M2,2 h16 v16 h-16 z")
     End Sub
 
 Private Sub SetResizersVisibility(visible As Boolean)
@@ -1193,16 +1156,37 @@ End Sub
             End If
             ShowWindowToTop()
             handled = True
-        ElseIf msg = &H112 Then ' WM_SYSCOMMAND
-            Dim cmd = wParam.ToInt32 And &HFFF0
-            If cmd = &HF030 OrElse cmd = &HF020 Then ' SC_MAXIMIZE or SC_RESTORE
-                ToggleMaximize()
-                handled = True
-                Return IntPtr.Zero
+        ElseIf msg = &H24 Then ' WM_GETMINMAXINFO：把最大化矩形约束到所在显示器工作区（避开任务栏，DPI/多屏自动正确）
+            Dim mmi = CType(Marshal.PtrToStructure(lParam, GetType(MINMAXINFO)), MINMAXINFO)
+            Dim scr = System.Windows.Forms.Screen.FromHandle(hwnd)
+            If scr IsNot Nothing Then
+                Dim wa = scr.WorkingArea
+                mmi.ptMaxPosition.X = wa.Left
+                mmi.ptMaxPosition.Y = wa.Top
+                mmi.ptMaxSize.X = wa.Width
+                mmi.ptMaxSize.Y = wa.Height
+                Marshal.StructureToPtr(mmi, lParam, True)
             End If
+            handled = True
+            Return IntPtr.Zero
         End If
         Return IntPtr.Zero
     End Function
+
+    <StructLayout(LayoutKind.Sequential)>
+    Private Structure POINT
+        Public X As Integer
+        Public Y As Integer
+    End Structure
+
+    <StructLayout(LayoutKind.Sequential)>
+    Private Structure MINMAXINFO
+        Public ptReserved As POINT
+        Public ptMaxSize As POINT
+        Public ptMaxPosition As POINT
+        Public ptMinTrackSize As POINT
+        Public ptMaxTrackSize As POINT
+    End Structure
 
     '窗口隐藏与置顶
     Private _Hidden As Boolean = False
