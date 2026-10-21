@@ -349,12 +349,17 @@ UnknownType:
                 PathTypeOne.Data = (New GeometryConverter).ConvertFromString(Logo.IconButtonCard)
                 LabTypeOne.Text = "统一通行证登录"
             Case 4 'Authlib-Injector
-                If Settings.Get(Of String)("CacheAuthAccess") = "" Then
+                If Settings.Get(Of McLoginType)("LoginType") = McLoginType.AuthOAuth Then
+                    '免密登录始终显示登录页（需要点击免密登录按钮）
+                    Type = PageType.Auth
+                ElseIf Settings.Get(Of String)("CacheAuthAccess") = "" Then
                     Type = PageType.Auth
                 Else
                     Type = PageType.AuthSkin
                 End If
-                Settings.Set("LoginType", McLoginType.Auth)
+                If Settings.Get(Of McLoginType)("LoginType") <> McLoginType.AuthOAuth Then
+                    Settings.Set("LoginType", McLoginType.Auth)
+                End If
                 PanType.Visibility = Visibility.Collapsed
                 PanTypeOne.Visibility = Visibility.Visible
                 PathTypeOne.Data = (New GeometryConverter).ConvertFromString(Logo.IconButtonCard)

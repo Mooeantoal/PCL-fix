@@ -297,6 +297,7 @@ NextInner:
         Legacy = 0
         Nide = 2
         Auth = 3
+        AuthOAuth = 4
         Ms = 5
     End Enum
 
@@ -343,6 +344,22 @@ NextInner:
         End Sub
         Public Overrides Function GetHashCode() As Integer
             Return (UserName & Password & BaseUrl & Token & Type).GetStableHashCode() Mod Integer.MaxValue
+        End Function
+
+    End Class
+    Public Class McLoginAuth
+        Inherits McLoginData
+
+        ''' <summary>
+        ''' 第三方皮肤站地址（含 /authserver 后缀）。
+        ''' </summary>
+        Public Server As String
+
+        Public Sub New()
+            Type = McLoginType.AuthOAuth
+        End Sub
+        Public Overrides Function GetHashCode() As Integer
+            Return (Server & Type).GetStableHashCode() Mod Integer.MaxValue
         End Function
 
     End Class
@@ -416,11 +433,14 @@ NextInner:
                 If Settings.Get(Of String)("CacheNideName") <> "" Then Return Settings.Get(Of String)("CacheNideName")
             Case McLoginType.Auth
                 If Settings.Get(Of String)("CacheAuthName") <> "" Then Return Settings.Get(Of String)("CacheAuthName")
+            Case McLoginType.AuthOAuth
+                If Settings.Get(Of String)("CacheOAuthName") <> "" Then Return Settings.Get(Of String)("CacheOAuthName")
         End Select
         '查找所有可能的项
         If Settings.Get(Of String)("CacheMsV2Name") <> "" Then Return Settings.Get(Of String)("CacheMsV2Name")
         If Settings.Get(Of String)("CacheNideName") <> "" Then Return Settings.Get(Of String)("CacheNideName")
         If Settings.Get(Of String)("CacheAuthName") <> "" Then Return Settings.Get(Of String)("CacheAuthName")
+        If Settings.Get(Of String)("CacheOAuthName") <> "" Then Return Settings.Get(Of String)("CacheOAuthName")
         If Settings.Get(Of String)("LoginLegacyName") <> "" Then Return Settings.Get(Of String)("LoginLegacyName").ToString.BeforeFirst("¨")
         Return Nothing
     End Function
@@ -449,6 +469,12 @@ NextInner:
                 Else
                     Return ""
                 End If
+            Case McLoginType.AuthOAuth
+                If Settings.Get(Of String)("CacheOAuthAccess") = "" Then
+                    Return FrmLoginAuth.IsVaild()
+                Else
+                    Return ""
+                End If
             Case Else
                 Return "未知的登录方式"
         End Select
@@ -465,6 +491,8 @@ NextInner:
             Case McLoginType.Nide
                 Return PageLoginNide.IsVaild(LoginData)
             Case McLoginType.Auth
+                Return PageLoginAuth.IsVaild(LoginData)
+            Case McLoginType.AuthOAuth
                 Return PageLoginAuth.IsVaild(LoginData)
             Case Else
                 Return "未知的登录方式"
@@ -499,6 +527,8 @@ NextInner:
                     Else
                         LoginData = PageLoginAuthSkin.GetLoginData()
                     End If
+                Case McLoginType.AuthOAuth
+                    LoginData = PageLoginAuth.GetLoginData()
             End Select
             Return LoginData
         Catch ex As Exception
@@ -521,6 +551,8 @@ NextInner:
                 Loader = McLoginNideLoader
             Case McLoginType.Auth
                 Loader = McLoginAuthLoader
+            Case McLoginType.AuthOAuth
+                Loader = McLoginAuthOAuthLoader
         End Select
         '尝试加载
         Loader.WaitForExit(Data.Input, McLoginLoader, Data.IsForceRestarting)
@@ -537,6 +569,7 @@ NextInner:
     Public McLoginLegacyLoader As New LoaderTask(Of McLoginLegacy, McLoginResult)("Loader Login Legacy", AddressOf McLoginLegacyStart)
     Public McLoginNideLoader As New LoaderTask(Of McLoginServer, McLoginResult)("Loader Login Nide", AddressOf McLoginServerStart) With {.ReloadTimeout = 1000 * 60 * 10}
     Public McLoginAuthLoader As New LoaderTask(Of McLoginServer, McLoginResult)("Loader Login Auth", AddressOf McLoginServerStart) With {.ReloadTimeout = 1000 * 60 * 10}
+    Public McLoginAuthOAuthLoader As New LoaderTask(Of McLoginAuth, McLoginResult)("Loader Login AuthOAuth", AddressOf McLoginAuthOAuthLoader) With {.ReloadTimeout = 1000 * 60 * 10}
 
     '主加载函数，返回所有需要的登录信息
     Private Sub McLoginMsStart(Data As LoaderTask(Of McLoginMs, McLoginResult))
@@ -878,6 +911,373 @@ LoginFinish:
         End Try
     End Function
 
+    'Yggdrasil Connect（OAuth）登录
+    Private Function McLoginAuthOAuthLoader(Data As LoaderTask(Of McLoginAuth, McLoginResult)) As McLoginResult
+        McLaunchLog("开始 Yggdrasil Connect 登录")
+        Data.State.Log = "正在通过第三方皮肤站登录…"
+
+        Dim Input = Data.Input
+        Dim Server = Input.Server
+        If Server.IsEmpty Then Server = Settings.Get(Of String)("CacheOAuthServerServer")
+
+        '若有缓存的刷新令牌，先尝试刷新
+        Dim CachedRefresh = Settings.Get(Of String)("CacheOAuthRefresh")
+        Dim CachedAccess = Settings.Get(Of String)("CacheOAuthAccess")
+        Dim AuthInfo As OAuthAuthInfo = Nothing
+
+        If Not CachedRefresh.IsEmpty Then
+            Try
+                McLaunchLog("尝试刷新 OAuth 令牌")
+                AuthInfo = McLoginAuthOAuthRefresh(Server, CachedRefresh)
+            Catch ex As Exception
+                McLaunchLog("刷新令牌失败，将重新登录：" & ex.Message)
+                AuthInfo = Nothing
+            End Try
+        End If
+
+        '刷新失败或无缓存，进行设备码登录
+        If AuthInfo Is Nothing Then
+            AuthInfo = McLoginAuthOAuthStart(Input)
+        End If
+
+        '缓存登录信息
+        Settings.Set("CacheOAuthAccess", AuthInfo.AccessToken)
+        Settings.Set("CacheOAuthClient", AuthInfo.ClientToken)
+        Settings.Set("CacheOAuthUuid", AuthInfo.Uuid)
+        Settings.Set("CacheOAuthName", AuthInfo.Name)
+        If Not AuthInfo.RefreshToken.IsEmpty Then Settings.Set("CacheOAuthRefresh", AuthInfo.RefreshToken)
+        If Not AuthInfo.IdToken.IsEmpty Then Settings.Set("CacheOAuthIdToken", AuthInfo.IdToken)
+        Settings.Set("CacheOAuthServerServer", Server)
+
+        Return New McLoginResult With {
+            .Name = AuthInfo.Name,
+            .Uuid = AuthInfo.Uuid,
+            .AccessToken = AuthInfo.AccessToken,
+            .ClientToken = AuthInfo.ClientToken,
+            .Type = "Yggdrasil Connect"
+        }
+    End Function
+
+    ''' <summary>
+    ''' 使用刷新令牌获取新的访问令牌。
+    ''' </summary>
+    Private Function McLoginAuthOAuthRefresh(Server As String, RefreshToken As String) As OAuthAuthInfo
+        Dim Config = McGetOAuthConfig(Server)
+        If Config Is Nothing Then Throw New Exception("无法获取 OAuth 配置")
+        '刷新令牌
+        Dim Result = NetRequestByClientRetry(Config.TokenEndpoint, HttpMethod.Post,
+            Content:=
+                "grant_type=refresh_token" & "&" &
+                "client_id=" & StringUtils.FormUrlEscape(Config.ClientId) & "&" &
+                "refresh_token=" & StringUtils.FormUrlEscape(RefreshToken),
+            ContentType:="application/x-www-form-urlencoded", RequireJson:=True)
+        Dim TokenJson As JObject = Result.DeserializeJson()
+        Dim AccessToken = TokenJson("access_token")?.ToString
+        Dim NewRefreshToken = TokenJson("refresh_token")?.ToString
+        Dim IdToken = TokenJson("id_token")?.ToString
+        If AccessToken.IsEmpty Then Throw New Exception("刷新令牌未返回访问令牌")
+        '使用缓存的玩家资料
+        Dim Name = Settings.Get(Of String)("CacheOAuthName")
+        Dim Uuid = Settings.Get(Of String)("CacheOAuthUuid")
+        If Name.IsEmpty OrElse Uuid.IsEmpty Then
+            '回退到从 ID 令牌解析
+            Dim Profile = OAuthGetProfileFromIdToken(IdToken)
+            If Profile Is Nothing Then Profile = OAuthGetProfileFromUserInfo(Config.UserInfoEndpoint, AccessToken)
+            If Profile IsNot Nothing Then
+                Name = Profile.Name
+                Uuid = Profile.Id
+            End If
+        End If
+        If Name.IsEmpty OrElse Uuid.IsEmpty Then Throw New Exception("无法获取玩家资料")
+        McLaunchLog($"OAuth 令牌刷新成功：{Name} ({Uuid})")
+        Return New OAuthAuthInfo With {
+            .Name = Name,
+            .Uuid = Uuid,
+            .AccessToken = AccessToken,
+            .ClientToken = Uuid,
+            .RefreshToken = If(NewRefreshToken.IsEmpty, RefreshToken, NewRefreshToken),
+            .IdToken = IdToken
+        }
+    End Function
+
+    Private Structure OAuthAuthInfo
+        Public Name As String
+        Public Uuid As String
+        Public AccessToken As String
+        Public ClientToken As String
+        Public RefreshToken As String
+        Public IdToken As String
+    End Structure
+
+    ''' <summary>
+    ''' 检测第三方皮肤站是否支持 Yggdrasil Connect（OAuth）登录。
+    ''' 返回 OAuth 配置信息；若不支持则返回 Nothing。
+    ''' </summary>
+    Public Function McGetOAuthConfig(ServerUrl As String) As OAuthConfig
+        If ServerUrl.IsEmpty Then Return Nothing
+        Try
+            '获取服务器根地址
+            Dim RootUrl = ServerUrl.TrimEnd("/"c)
+            If RootUrl.ToLower.EndsWith("/authserver") Then
+                RootUrl = RootUrl.Substring(0, RootUrl.Length - "/authserver".Length)
+            End If
+            '获取服务器元数据
+            Dim RootJson As JObject = Nothing
+            Try
+                RootJson = NetRequestByClientRetry(RootUrl, Accept:="application/json", RequireJson:=True).DeserializeJson()
+            Catch
+                RootJson = Nothing
+            End Try
+            If RootJson Is Nothing Then Return Nothing
+            '检查 feature.openid_configuration_url
+            Dim Feature = RootJson("feature")
+            If Feature Is Nothing Then Return Nothing
+            Dim OpenIdUrl = Feature("openid_configuration_url")?.ToString
+            If OpenIdUrl.IsEmpty Then Return Nothing
+            '获取 OpenID 发现文档
+            Dim Discovery As JObject
+            Try
+                Discovery = NetRequestByClientRetry(OpenIdUrl, Accept:="application/json", RequireJson:=True).DeserializeJson()
+            Catch
+                Return Nothing
+            End If
+            Dim DeviceEndpoint = Discovery("device_authorization_endpoint")?.ToString
+            Dim TokenEndpoint = Discovery("token_endpoint")?.ToString
+            Dim UserInfoEndpoint = Discovery("userinfo_endpoint")?.ToString
+            If DeviceEndpoint.IsEmpty OrElse TokenEndpoint.IsEmpty Then Return Nothing
+            '获取 client_id
+            Dim ClientId = Discovery("client_id")?.ToString
+            If ClientId.IsEmpty Then ClientId = Discovery("shared_client_id")?.ToString
+            'LittleSkin 内置 client_id
+            If ClientId.IsEmpty Then
+                Dim Host As String = ""
+                Try : Host = New Uri(RootUrl).Host.ToLower : Catch : End Try
+                If Host = "littleskin.cn" OrElse Host.EndsWith(".littleskin.cn") Then
+                    ClientId = "1514"
+                End If
+            End If
+            Return New OAuthConfig With {
+                .RootUrl = RootUrl,
+                .DeviceEndpoint = DeviceEndpoint,
+                .TokenEndpoint = TokenEndpoint,
+                .UserInfoEndpoint = UserInfoEndpoint,
+                .ClientId = ClientId,
+                .JwksUri = Discovery("jwks_uri")?.ToString
+            }
+        Catch ex As Exception
+            Logger.Warn(ex, "检测 OAuth 配置失败")
+            Return Nothing
+        End Try
+    End Function
+
+    Public Structure OAuthConfig
+        Public RootUrl As String
+        Public DeviceEndpoint As String
+        Public TokenEndpoint As String
+        Public UserInfoEndpoint As String
+        Public ClientId As String
+        Public JwksUri As String
+    End Structure
+
+    ''' <summary>
+    ''' Yggdrasil Connect 登录主流程（设备码授权）。
+    ''' </summary>
+    Private Function McLoginAuthOAuthStart(Input As McLoginAuth) As OAuthAuthInfo
+        '获取 OAuth 配置
+        Dim Config = McGetOAuthConfig(Input.Server)
+        If Config Is Nothing Then
+            Throw New Exception("$当前皮肤站不支持免密登录（Yggdrasil Connect）。")
+        End If
+        If Config.ClientId.IsEmpty Then
+            Throw New Exception("$皮肤站未在 OpenID 发现文档中提供 client_id，无法进行免密登录。")
+        End If
+
+        '请求设备码
+        McLaunchLog("请求设备码：" & Config.DeviceEndpoint)
+        Dim Scope = "openid offline_access Yggdrasil.PlayerProfiles.Select Yggdrasil.Server.Join"
+        Dim DeviceJson As JObject
+        Try
+            DeviceJson = NetRequestByClientRetry(Config.DeviceEndpoint, HttpMethod.Post,
+                Content:=$"client_id={StringUtils.FormUrlEscape(Config.ClientId)}&scope={StringUtils.FormUrlEscape(Scope)}",
+                ContentType:="application/x-www-form-urlencoded", RequireJson:=True).DeserializeJson()
+        Catch ex As Exception
+            Throw New Exception("$请求设备码失败：" & ex.Message, ex)
+        End Try
+
+        '弹窗并轮询获取令牌
+        Dim TokenJson = OAuthDeviceCodeLogin(DeviceJson, Config)
+        Dim AccessToken = TokenJson("access_token")?.ToString
+        Dim RefreshToken = TokenJson("refresh_token")?.ToString
+        Dim IdToken = TokenJson("id_token")?.ToString
+        If AccessToken.IsEmpty Then
+            Throw New Exception("$登录失败：未获取到访问令牌。")
+        End If
+        McLaunchLog("OAuth 登录成功，正在解析玩家资料…")
+
+        '从 ID 令牌中解析玩家资料
+        Dim Profile = OAuthGetProfileFromIdToken(IdToken)
+        If Profile Is Nothing Then
+            '回退到用户信息端点
+            Profile = OAuthGetProfileFromUserInfo(Config.UserInfoEndpoint, AccessToken)
+        End If
+        If Profile Is Nothing Then
+            Throw New Exception("$登录失败：皮肤站未返回玩家资料，请确认已在皮肤站创建角色。")
+        End If
+
+        '若有多个角色，让用户选择
+        If Profile.AvailableProfiles IsNot Nothing AndAlso Profile.AvailableProfiles.Count > 1 Then
+            Dim Selected = OAuthSelectProfile(Profile.AvailableProfiles)
+            If Selected Is Nothing Then
+                Throw New OperationCanceledException
+            End If
+            Profile = New OAuthProfile With {.Id = Selected.Id, .Name = Selected.Name}
+        ElseIf Profile.Id.IsEmpty Then
+            Throw New Exception("$登录失败：玩家资料中不包含有效的 UUID。")
+        End If
+
+        McLaunchLog($"登录成功：{Profile.Name} ({Profile.Id})")
+        Return New OAuthAuthInfo With {
+            .Name = Profile.Name,
+            .Uuid = Profile.Id,
+            .AccessToken = AccessToken,
+            .ClientToken = Profile.Id,
+            .RefreshToken = RefreshToken,
+            .IdToken = IdToken
+        }
+    End Function
+
+    ''' <summary>
+    ''' 设备码登录弹窗与轮询。返回令牌 JSON。
+    ''' </summary>
+    Private Function OAuthDeviceCodeLogin(DeviceJson As JObject, Config As OAuthConfig) As JObject
+        Dim UserCode = DeviceJson("user_code")?.ToString
+        Dim DeviceCode = DeviceJson("device_code")?.ToString
+        Dim Website = DeviceJson("verification_uri")?.ToString
+        Dim WebsiteComplete = DeviceJson("verification_uri_complete")?.ToString
+        Dim Interval = DeviceJson("interval")?.ToObject(Of Integer) ?? 5
+        Dim ExpiresIn = DeviceJson("expires_in")?.ToObject(Of Integer) ?? 600
+
+        '弹窗
+        Dim Converter As New MyMsgBoxConverter With {
+            .Content = New JObject From {
+                {"user_code", UserCode},
+                {"device_code", DeviceCode},
+                {"verification_uri", Website},
+                {"verification_uri_complete", WebsiteComplete},
+                {"interval", Interval},
+                {"expires_in", ExpiresIn},
+                {"token_endpoint", Config.TokenEndpoint},
+                {"client_id", Config.ClientId}
+            },
+            .ForceWait = True,
+            .Type = MyMsgBoxType.LoginOAuth
+        }
+        WaitingMyMsgBox.Enqueue(Converter)
+        While Converter.Result Is Nothing
+            Thread.Sleep(100)
+        End While
+        If TypeOf Converter.Result Is Exception Then
+            Throw CType(Converter.Result, Exception)
+        End If
+        Return CType(Converter.Result, JObject)
+    End Function
+
+    Private Structure OAuthProfile
+        Public Id As String
+        Public Name As String
+        Public AvailableProfiles As List(Of OAuthProfile)
+    End Structure
+
+    ''' <summary>
+    ''' 从 ID 令牌（JWT）中解析玩家资料。
+    ''' </summary>
+    Private Function OAuthGetProfileFromIdToken(IdToken As String) As OAuthProfile
+        If IdToken.IsEmpty Then Return Nothing
+        Try
+            Dim Parts = IdToken.Split("."c)
+            If Parts.Length < 2 Then Return Nothing
+            Dim PayloadJson = JwtBase64UrlDecode(Parts(1)).DeserializeJson()
+            Dim Selected = PayloadJson("selectedProfile")
+            Dim Available = PayloadJson("availableProfiles")
+            Dim Result As New OAuthProfile
+            If Selected IsNot Nothing Then
+                Result.Id = Selected("id")?.ToString
+                Result.Name = Selected("name")?.ToString
+            End If
+            If Available IsNot Nothing Then
+                Result.AvailableProfiles = New List(Of OAuthProfile)
+                For Each P In Available
+                    Result.AvailableProfiles.Add(New OAuthProfile With {
+                        .Id = P("id")?.ToString,
+                        .Name = P("name")?.ToString
+                    })
+                Next
+            End If
+            If Result.Id.IsEmpty AndAlso Result.AvailableProfiles Is Nothing Then Return Nothing
+            Return Result
+        Catch ex As Exception
+            Logger.Warn(ex, "解析 ID 令牌失败")
+            Return Nothing
+        End Try
+    End Function
+
+    ''' <summary>
+    ''' 从用户信息端点获取玩家资料。
+    ''' </summary>
+    Private Function OAuthGetProfileFromUserInfo(UserInfoEndpoint As String, AccessToken As String) As OAuthProfile
+        If UserInfoEndpoint.IsEmpty Then Return Nothing
+        Try
+            Dim Json = NetRequestByClientRetry(UserInfoEndpoint, Accept:="application/json",
+                Headers:={{"Authorization", "Bearer " & AccessToken}}, RequireJson:=True).DeserializeJson()
+            Dim Result As New OAuthProfile
+            Dim Selected = Json("selectedProfile")
+            Dim Available = Json("availableProfiles")
+            If Selected IsNot Nothing Then
+                Result.Id = Selected("id")?.ToString
+                Result.Name = Selected("name")?.ToString
+            End If
+            If Available IsNot Nothing Then
+                Result.AvailableProfiles = New List(Of OAuthProfile)
+                For Each P In Available
+                    Result.AvailableProfiles.Add(New OAuthProfile With {
+                        .Id = P("id")?.ToString,
+                        .Name = P("name")?.ToString
+                    })
+                Next
+            End If
+            If Result.Id.IsEmpty AndAlso Result.AvailableProfiles Is Nothing Then Return Nothing
+            Return Result
+        Catch ex As Exception
+            Logger.Warn(ex, "获取用户信息失败")
+            Return Nothing
+        End Try
+    End Function
+
+    ''' <summary>
+    ''' 让用户从多个角色中选择一个。返回选择的角色，若取消则返回 Nothing。
+    ''' </summary>
+    Private Function OAuthSelectProfile(Profiles As List(Of OAuthProfile)) As OAuthProfile
+        Dim Names = Profiles.Select(Function(p) p.Name).ToArray()
+        Dim SelectedIndex = MyMsgBox(
+            $"该账号下有 {Profiles.Count} 个角色，请选择要登录的角色：",
+            "选择角色", Names, "取消", IsWarn:=False)
+        If SelectedIndex < 0 OrElse SelectedIndex >= Profiles.Count Then Return Nothing
+        Return Profiles(SelectedIndex)
+    End Function
+
+    ''' <summary>
+    ''' Base64Url 解码（JWT 载荷使用）。
+    ''' </summary>
+    Private Function JwtBase64UrlDecode(Input As String) As String
+        Dim S = Input.Replace("-", "+").Replace("_", "/")
+        Select Case S.Length Mod 4
+            Case 2 : S &= "=="
+            Case 3 : S &= "="
+        End Select
+        Dim Bytes = Convert.FromBase64String(S)
+        Return Text.Encoding.UTF8.GetString(Bytes)
+    End Function
+
     '微软登录步骤 1，原始登录：获取 DeviceCode 并开启登录网页
     Private Function MsLoginStep1New(Data As LoaderTask(Of McLoginMs, McLoginResult)) As (OAuthAccessToken As String, OAuthRefreshToken As String)
         '参考：https://learn.microsoft.com/zh-cn/entra/identity-platform/v2-oauth2-device-code
@@ -1099,20 +1499,24 @@ Retry:
 
     '返回符合离线皮肤设置的 UUID
     Private Function McLoginLegacyUuidWithCustomSkin(UserName As String, SkinType As Integer, SkinName As String) As String
-        Dim Uuid As String = McLoginLegacyUuid(UserName)
-        '根据离线皮肤获取实际使用的 Uuid
+        Dim UuidMode = Settings.Get(Of Integer)("LaunchLegacyUuidMode")
+        Dim CustomUuid = Settings.Get(Of String)("LaunchLegacyCustomUuid")
+        Dim Uuid As String = McLoginLegacyUuidByMode(UserName, UuidMode, CustomUuid)
+        '根据离线皮肤获取实际使用的 Uuid（仅在默认皮肤或需要调整时处理）
         Select Case SkinType
             Case 0
                 '默认，不需要处理
             Case 1
                 'Steve
-                Do Until McSkinSex(Uuid) = "Steve"
+                Do Until McSkinSex(Uuid.Replace("-", "")) = "Steve"
+                    Uuid = Uuid.Replace("-", "")
                     If Uuid.EndsWithF("FFFFF") Then Uuid = Uuid.Substring(0, 27) & "00000"
                     Uuid = Uuid.Substring(0, 27) & (Long.Parse(Uuid.Substring(27), Globalization.NumberStyles.AllowHexSpecifier) + 1).ToString("X").PadLeft(5, "0")
                 Loop
             Case 2
                 'Alex
-                Do Until McSkinSex(Uuid) = "Alex"
+                Do Until McSkinSex(Uuid.Replace("-", "")) = "Alex"
+                    Uuid = Uuid.Replace("-", "")
                     If Uuid.EndsWithF("FFFFF") Then Uuid = Uuid.Substring(0, 27) & "00000"
                     Uuid = Uuid.Substring(0, 27) & (Long.Parse(Uuid.Substring(27), Globalization.NumberStyles.AllowHexSpecifier) + 1).ToString("X").PadLeft(5, "0")
                 Loop
@@ -1129,7 +1533,8 @@ Retry:
                 End Try
             Case 4
                 '自定义
-                Do Until McSkinSex(Uuid) = If(Settings.Get(Of Boolean)("LaunchSkinSlim"), "Alex", "Steve")
+                Do Until McSkinSex(Uuid.Replace("-", "")) = If(Settings.Get(Of Boolean)("LaunchSkinSlim"), "Alex", "Steve")
+                    Uuid = Uuid.Replace("-", "")
                     If Uuid.EndsWithF("FFFFF") Then Uuid = Uuid.Substring(0, 27) & "00000"
                     Uuid = Uuid.Substring(0, 27) & (Long.Parse(Uuid.Substring(27), Globalization.NumberStyles.AllowHexSpecifier) + 1).ToString("X").PadLeft(5, "0")
                 Loop
@@ -1163,6 +1568,41 @@ Retry:
     Public Function McLoginLegacyUuid(Name As String)
         Dim FullUuid As String = Name.Length.ToString("X").EnsureLength("0", 16) & Name.GetStableHashCode().ToString("X").EnsureLength("0", 16)
         Return FullUuid.Substring(0, 12) & "3" & FullUuid.Substring(13, 3) & "9" & FullUuid.Substring(17, 15)
+    End Function
+
+    ''' <summary>
+    ''' 根据 UUID 模式生成离线登录 UUID。
+    ''' 模式 0：标准 UUID（基于 "OfflinePlayer:{name}" 的 UUID v3）
+    ''' 模式 1：Legacy UUID（PCL 旧版算法）
+    ''' 模式 2：自定义 UUID
+    ''' 统一返回 32 位无连字符十六进制字符串，与其他登录方式保持一致。
+    ''' </summary>
+    Public Function McLoginLegacyUuidByMode(Name As String, Mode As Integer, CustomUuid As String) As String
+        Select Case Mode
+            Case 1 'Legacy（PCL 旧版算法）
+                Return McLoginLegacyUuid(Name)
+            Case 2 '自定义
+                If CustomUuid.IsEmpty Then Return McLoginLegacyUuid(Name)
+                Dim Cleaned = CustomUuid.Replace("-", "").ToLower
+                If Cleaned.Length <> 32 Then Return McLoginLegacyUuid(Name)
+                Return Cleaned
+            Case Else '标准 UUID（UUID v3）
+                Return McLoginLegacyUuidStandard(Name).Replace("-", "")
+        End Select
+    End Function
+
+    ''' <summary>
+    ''' 生成标准离线 UUID（基于 "OfflinePlayer:{name}" 的 UUID v3 / MD5）。
+    ''' </summary>
+    Private Function McLoginLegacyUuidStandard(Name As String) As String
+        Dim Source = "OfflinePlayer:" & Name
+        Dim Md5 = Security.Cryptography.MD5.Create()
+        Dim Hash = Md5.ComputeHash(Text.Encoding.UTF8.GetBytes(Source))
+        '设置 UUID v3 版本位
+        Hash(6) = CByte((Hash(6) And &H0F) Or &H30)
+        Hash(8) = CByte((Hash(8) And &H3F) Or &H80)
+        Dim Hex = BitConverter.ToString(Hash).Replace("-", "").ToLower
+        Return Hex.Substring(0, 8) & "-" & Hex.Substring(8, 4) & "-" & Hex.Substring(12, 4) & "-" & Hex.Substring(16, 4) & "-" & Hex.Substring(20, 12)
     End Function
 
 #End Region
@@ -1273,9 +1713,10 @@ NextInstance:
             Args.Add("-javaagent:""${pure_directory}\nide8auth.jar""=""" & Settings.Get(Of String)("VersionServerNide", Instance:=McInstanceSelected) & """")
         End If
         'Authlib-Injector
-        If McLoginLoader.Output.Type = "Auth" Then
+        If McLoginLoader.Output.Type = "Auth" OrElse McLoginLoader.Output.Type = "Yggdrasil Connect" Then
             If McLaunchJavaSelected.Version.Major >= 6 Then Args.Add("-Djavax.net.ssl.trustStoreType=WINDOWS-ROOT") '信任系统根证书（5252#）
             Dim Server As String = Settings.Get(Of String)("VersionServerAuthServer", Instance:=McInstanceSelected)
+            If Server.IsEmpty Then Server = Settings.Get(Of String)("CacheOAuthServerServer")
             Try
                 McLaunchLog($"开始 Authlib Injector Prefetch")
                 Dim Response As String = NetRequestByClientRetry(Server, Encoding:=Encoding.UTF8)

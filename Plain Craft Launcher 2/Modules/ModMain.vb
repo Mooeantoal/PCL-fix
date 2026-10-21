@@ -213,6 +213,7 @@ EndHint:
         [Select]
         Input
         Login
+        LoginOAuth
     End Enum
 
     ''' <summary>
@@ -346,6 +347,8 @@ EndHint:
                         FrmMain.PanMsg.Children.Add(New MyMsgText(TargetMsgBox))
                     Case MyMsgBoxType.Login
                         FrmMain.PanMsg.Children.Add(New MyMsgLogin(TargetMsgBox))
+                    Case MyMsgBoxType.LoginOAuth
+                        FrmMain.PanMsg.Children.Add(New MyMsgLoginOAuth(TargetMsgBox))
                 End Select
             Else
                 '没有弹窗，没有等待的弹窗

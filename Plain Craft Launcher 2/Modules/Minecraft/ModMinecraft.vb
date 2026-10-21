@@ -205,6 +205,8 @@ Public Module ModMinecraft
                Settings.Get(Of String)("VersionServerAuthServer", Instance:=value) <> Settings.Get(Of String)("CacheAuthServerServer") AndAlso
                Settings.Get(Of Integer)("VersionServerLogin", Instance:=value) = 4 Then
                 Settings.Set("CacheAuthAccess", "")
+                Settings.Set("CacheOAuthAccess", "")
+                Settings.Set("CacheOAuthRefresh", "")
                 Logger.Info("服务器改变，要求重新登录 Authlib-Injector")
             End If
             If Settings.Get(Of Integer)("VersionServerLogin", Instance:=value) = 4 Then

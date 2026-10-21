@@ -9,5 +9,7 @@
         <local:MyHint x:Name="HintChinese" Theme="Red" Text="玩家名如果包含英文、数字、下划线以外的内容，可能会无法进入 Minecraft 1.18 以后的世界！" Margin="0,0,0,15" Visibility="Collapsed" />
         <local:MySkin HorizontalAlignment="Center" x:Name="Skin" HasCape="False" Margin="0,0,0,15" />
         <local:MyComboBox IsEditable="True" x:Name="ComboName" Height="28" IsTextSearchEnabled="False" HintText="游戏用户名" />
+        <local:MyComboBox x:Name="ComboUuidMode" Height="28" Margin="0,15,0,0" SelectionChanged="ComboUuidMode_SelectionChanged" />
+        <local:MyTextBox x:Name="TextCustomUuid" Height="28" Margin="0,15,0,0" HintText="自定义 UUID（例如 12345678-1234-1234-1234-123456789012）" Visibility="Collapsed" LostFocus="TextCustomUuid_LostFocus" />
     </StackPanel>
 </Grid>

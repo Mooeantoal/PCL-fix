@@ -29,6 +29,11 @@ Public Class PageLoginLegacy
                 ComboName.Text = Settings.Get(Of String)("LoginLegacyName").ToString.BeforeFirst("¨").Trim
             End If
         End If
+        '加载 UUID 模式
+        ComboUuidMode.ItemsSource = {"标准 UUID（基于玩家名生成）", "Legacy UUID（PCL 旧版算法）", "自定义 UUID"}
+        ComboUuidMode.SelectedIndex = Settings.Get(Of Integer)("LaunchLegacyUuidMode")
+        TextCustomUuid.Text = Settings.Get(Of String)("LaunchLegacyCustomUuid")
+        TextCustomUuid.Visibility = If(ComboUuidMode.SelectedIndex = 2, Visibility.Visible, Visibility.Collapsed)
         IsReloaded = True
     End Sub
     ''' <summary>
@@ -72,6 +77,29 @@ Public Class PageLoginLegacy
         Else
             FrmMain.PageChange(FormMain.PageType.Setup, FormMain.PageSubType.SetupLaunch) '切换到皮肤设置页面
         End If
+    End Sub
+
+    Private Sub ComboUuidMode_SelectionChanged(sender As Object, e As SelectionChangedEventArgs) Handles ComboUuidMode.SelectionChanged
+        If Not IsReloaded Then Return
+        Dim Mode = ComboUuidMode.SelectedIndex
+        Settings.Set("LaunchLegacyUuidMode", Mode)
+        TextCustomUuid.Visibility = If(Mode = 2, Visibility.Visible, Visibility.Collapsed)
+        RunInUi(Sub() PanMain.InvalidateMeasure(), True)
+    End Sub
+
+    Private Sub TextCustomUuid_LostFocus(sender As Object, e As RoutedEventArgs) Handles TextCustomUuid.LostFocus
+        Dim Input = TextCustomUuid.Text.Trim
+        If Input.IsEmpty Then
+            Settings.Set("LaunchLegacyCustomUuid", "")
+            Return
+        End If
+        '验证格式
+        Dim Cleaned = Input.Replace("-", "").ToLower
+        If Cleaned.Length <> 32 OrElse Not Cleaned.RegexCheck("^[0-9a-f]{32}$") Then
+            Hint("UUID 格式不正确，请输入 32 位十六进制字符（可带连字符）", HintType.Red)
+            Return
+        End If
+        Settings.Set("LaunchLegacyCustomUuid", Input)
     End Sub
 
 End Class
