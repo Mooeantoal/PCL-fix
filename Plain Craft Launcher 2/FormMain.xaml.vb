@@ -443,7 +443,7 @@ Public Class FormMain
             Telemetry("启动")
             '开源版本提示
             If VersionBranchMain = "OpenSource" Then
-                MyMsgBox($"该版本中无法使用以下特性：{vbCrLf}- CurseForge API 调用：需要自行申请 API Key，然后添加到 ModSecret.vb 的开头{vbCrLf}- 正版登录：需要自行向微软申请 Client ID，然后添加到 ModSecret.vb 的开头{vbCrLf}- 更新与联网通知：避免滥用隐患{vbCrLf}- 主题切换：这是需要赞助解锁的纪念性质的功能，别让赞助者太伤心啦……{vbCrLf}- 百宝箱：开发早期往里面塞了些开发工具，整理起来太麻烦了……", "开源版本说明")
+                MyMsgBox($"该版本中无法使用以下特性：{vbCrLf}- 正版登录：需要自行向微软申请 Client ID，然后添加到 ModSecret.vb 的开头{vbCrLf}- 更新与联网通知：避免滥用隐患{vbCrLf}- 主题切换：这是需要赞助解锁的纪念性质的功能，别让赞助者太伤心啦……{vbCrLf}- 百宝箱：开发早期往里面塞了些开发工具，整理起来太麻烦了……", "开源版本说明")
             End If
         End Sub, "初始化", ThreadPriority.Lowest)
 
@@ -691,32 +691,38 @@ Public Class FormMain
             RestoreTop = Top
             RestoreWidth = Width
             RestoreHeight = Height
-            '最大化到工作区
-            Dim workArea = SystemParameters.WorkArea
-            Left = workArea.Left
-            Top = workArea.Top
-            Width = workArea.Width
-            Height = workArea.Height
+            '最大化到全屏
+            Dim screenBounds = My.Computer.Screen.Bounds
+            Left = GetWPFSize(screenBounds.Left)
+            Top = GetWPFSize(screenBounds.Top)
+            Width = GetWPFSize(screenBounds.Width)
+            Height = GetWPFSize(screenBounds.Height)
+            '移除边距
+            PanBack.Margin = New Thickness(0)
+            BorderForm.Margin = New Thickness(0)
             '移除圆角
             RectForm.RadiusX = 0
             RectForm.RadiusY = 0
             '隐藏调整大小控件
             SetResizersVisibility(False)
             IsMaximized = True
-            BtnTitleMax.Logo = "F1 M2,0 L0,2 8,10 0,18 2,20 10,12 18,20 20,18 12,10 20,2 18,0 10,8 2,0Z"
+            BtnTitleMax.Logo = "F1 M4,4 h14 v14 h-14 z M2,2 h14 v14 h-14 z"
         Else
             '还原
             Left = RestoreLeft
             Top = RestoreTop
             Width = RestoreWidth
             Height = RestoreHeight
+            '恢复边距
+            PanBack.Margin = New Thickness(10)
+            BorderForm.Margin = New Thickness(8)
             '恢复圆角
             RectForm.RadiusX = 6
             RectForm.RadiusY = 6
             '显示调整大小控件
             SetResizersVisibility(True)
             IsMaximized = False
-            BtnTitleMax.Logo = "F1 M0,0 h18 v2 h-18 v-2 Z M0,16 h18 v2 h-18 v-2 Z M0,0 v18 h2 v-18 h-2 Z M16,0 v18 h2 v-18 h-2 Z"
+            BtnTitleMax.Logo = "F1 M2,2 h16 v16 h-16 z"
         End If
     End Sub
 
@@ -1186,6 +1192,13 @@ End Sub
             End If
             ShowWindowToTop()
             handled = True
+        ElseIf msg = &H112 Then ' WM_SYSCOMMAND
+            Dim cmd = wParam.ToInt32 And &HFFF0
+            If cmd = &HF030 OrElse cmd = &HF020 Then ' SC_MAXIMIZE or SC_RESTORE
+                ToggleMaximize()
+                handled = True
+                Return IntPtr.Zero
+            End If
         End If
         Return IntPtr.Zero
     End Function
