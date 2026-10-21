@@ -737,7 +737,7 @@ Public Class FormMain
         PanBack.Margin = If(maximized, New Thickness(0), New Thickness(10))
         BorderForm.Margin = If(maximized, New Thickness(0), New Thickness(8))
         SetResizersVisibility(Not maximized)
-        BtnTitleMax.Logo = If(WindowState = WindowState.Maximized, "F1 M6,2 h10 v10 h-10 Z M2,8 h10 v10 h-10 Z", "F1 M2,2 h16 v16 h-16 Z")
+        BtnTitleMax.Logo = If(WindowState = WindowState.Maximized, "F1 M6,2 h13 v13 h-3 M6,2 v3 M3,5 h13 v13 h-13 Z", "F1 M2,2 h16 v16 h-16 Z")
     End Sub
 
     'Aero Snap 区域检测（屏幕像素坐标，阈值 6px）
