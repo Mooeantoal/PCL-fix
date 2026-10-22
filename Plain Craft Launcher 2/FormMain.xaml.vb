@@ -807,8 +807,10 @@ Public Class FormMain
     '统一设置窗口装饰（圆角/边距/缩放条/最大化按钮图标）
     Private Sub ApplyWindowChrome(maximized As Boolean)
         Logger.Info($"[SNAP] ApplyWindowChrome: maximized={maximized} -> BF=0 PB=0（白卡铺满窗口）")
-        RectForm.RadiusX = If(maximized, 0, 6)
-        RectForm.RadiusY = If(maximized, 0, 6)
+        '方角：仅自由悬浮窗口保留 6px 圆角；贴边（吸附/最大化）改方角，避免圆角裁剪在屏幕边形成透明缺角（即用户说的“边界半透明框”）
+        Dim round = Not (maximized Or _isSnapped)
+        RectForm.RadiusX = If(round, 6, 0)
+        RectForm.RadiusY = If(round, 6, 0)
         '白卡铺满窗口：取消 18px 内缩（PanBack 10 + BorderForm 8），自由态与吸附态均让内容卡贴满窗口边缘
         PanBack.Margin = New Thickness(0)
         BorderForm.Margin = New Thickness(0)
