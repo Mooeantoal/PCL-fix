@@ -705,7 +705,7 @@ Public Class FormMain
             '（_snapZone 被清空），直接据此判定会漏吸附、落到 Else 分支（ApplyWindowChrome(False) 带 8/10 边距且不定位）
             '→ 四边均匀内缩。松手重新判定可消除该漏判。
             Dim zoneNow = DetectSnapZone(GetCursorPixel())
-            If _snapZone = "" Then _snapZone = zoneNow
+            If zoneNow <> "" Then _snapZone = zoneNow '以松手瞬间判定的区域为准（角优先于半屏）：修"拖动中先冻结成半屏、其后拖到角、松手却仍落半屏"的瑕疵
             Logger.Info($"[SNAP] Up: zone='{_snapZone}' reDetect='{zoneNow}' WS={WindowState} L={Me.Left} T={Me.Top} W={Me.Width} H={Me.Height}")
             If _snapZone = "Top" Then
                 WindowState = WindowState.Maximized '接触上边缘 → 最大化
