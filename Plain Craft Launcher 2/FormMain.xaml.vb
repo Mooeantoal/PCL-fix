@@ -660,6 +660,13 @@ Public Class FormMain
     Private _snapPreview As System.Windows.Window = Nothing '实时吸附预览框（半透明矩形）
     Private _snapPreviewZone As String = "" '预览框当前显示的区域，用于区域切换时补间动画（避免每帧重播）
     Private _snapCurrentZone As String = "" '当前分屏(B)区域，供切回窗口时重新钉边（_snapZone 在 _Up 末尾被清空，故单独保存）
+    '预览窗补间动画：在设备像素层面做插值，每帧 SetWindowPos 落位（绕开 WPF DPI 上下文换算）
+    Private _snapAnimX As Double = 0, _snapAnimY As Double = 0, _snapAnimW As Double = 0, _snapAnimH As Double = 0 '当前设备像素位形
+    Private _snapAnimFromX As Double = 0, _snapAnimFromY As Double = 0, _snapAnimFromW As Double = 0, _snapAnimFromH As Double = 0
+    Private _snapAnimToX As Double = 0, _snapAnimToY As Double = 0, _snapAnimToW As Double = 0, _snapAnimToH As Double = 0
+    Private _snapAnimStart As Date = Nothing
+    Private _snapAnimTimer As System.Windows.Threading.DispatcherTimer = Nothing
+    Private Const SNAP_ANIM_MS As Integer = 140
 
     Private Sub FormDragMove(sender As Object, e As MouseButtonEventArgs) Handles PanTitle.MouseLeftButtonDown, PanMsg.MouseLeftButtonDown
         On Error Resume Next
@@ -984,6 +991,14 @@ Public Class FormMain
         w.Content = border
         _snapPreview = w
     End Sub
+    '把预览窗钉到设备像素矩形(x,y,w,h)：SetWindowPos 精确落位，并同步 WPF 的 Width/Height/Left/Top(DIP) 保持布局缓存一致
+    Private Sub PlaceSnapPreview(hwnd As IntPtr, x As Double, y As Double, w As Double, h As Double)
+        Dim s = GetScreenScale(New System.Windows.Point(x + w / 2, y + h / 2))
+        _snapPreview.Width = w / s.X : _snapPreview.Height = h / s.Y
+        _snapPreview.Left = x / s.X : _snapPreview.Top = y / s.Y
+        SetWindowPos(hwnd, IntPtr.Zero, CInt(x), CInt(y), CInt(w), CInt(h), SWP_NOZORDER Or SWP_NOACTIVATE Or SWP_ASYNCWINDOWPOS)
+    End Sub
+
     Private Sub ShowSnapPreview(zone As String)
         EnsureSnapPreview()
         '用光标所在屏（与 DetectSnapZone/ApplySnapGeometry 一致）
@@ -1004,19 +1019,56 @@ Public Class FormMain
         End Select
         '直接用设备像素 SetWindowPos 落位：绕开 WPF 按预览窗“自身 DPI 上下文”换算 Left/Top 的环节，
         '避免跨屏/不同缩放下预览窗被摆到错误坐标（表现为“预览跑到左上角/错位”，即“有时候还是会这样”的根因）。
-        '同时仍写 WPF 的 Width/Height/Left/Top（DIP）以保持布局缓存与窗口尺寸一致，避免被布局回弹。
-        If Not _snapPreview.IsVisible Then _snapPreview.Show()
-        Dim s = GetScreenScale(New System.Windows.Point(rL + rW / 2, rT + rH / 2))
-        _snapPreview.Width = rW / s.X : _snapPreview.Height = rH / s.Y
-        _snapPreview.Left = rL / s.X : _snapPreview.Top = rT / s.Y
         Dim hwnd = New System.Windows.Interop.WindowInteropHelper(_snapPreview).Handle
-        If hwnd <> IntPtr.Zero Then
-            SetWindowPos(hwnd, IntPtr.Zero, rL, rT, rW, rH, SWP_NOZORDER Or SWP_NOACTIVATE Or SWP_SHOWWINDOW Or SWP_ASYNCWINDOWPOS)
+        If hwnd = IntPtr.Zero Then Return
+        '首次显示：直接定位再 Show，不做动画（避免从(0,0)飞入）
+        If Not _snapPreview.IsVisible Then
+            _snapPreview.Show()
+            _snapAnimX = rL : _snapAnimY = rT : _snapAnimW = rW : _snapAnimH = rH
+            PlaceSnapPreview(hwnd, rL, rT, rW, rH)
+            _snapPreviewZone = zone
+            Return
+        End If
+        If zone = _snapPreviewZone Then
+            '同一区域：仍用 SetWindowPos 精确落位（应对跨屏/缩放），无需动画
+            _snapAnimX = rL : _snapAnimY = rT : _snapAnimW = rW : _snapAnimH = rH
+            PlaceSnapPreview(hwnd, rL, rT, rW, rH)
+            Return
         End If
         _snapPreviewZone = zone
+        '不同区域：启动设备像素插值动画（DispatcherTimer 每帧 SetWindowPos，绕开 WPF DPI 上下文换算）
+        _snapAnimFromX = _snapAnimX : _snapAnimFromY = _snapAnimY : _snapAnimFromW = _snapAnimW : _snapAnimFromH = _snapAnimH
+        _snapAnimToX = rL : _snapAnimToY = rT : _snapAnimToW = rW : _snapAnimToH = rH
+        _snapAnimStart = Date.Now
+        If _snapAnimTimer Is Nothing Then
+            _snapAnimTimer = New System.Windows.Threading.DispatcherTimer()
+            _snapAnimTimer.Interval = TimeSpan.FromMilliseconds(16)
+            AddHandler _snapAnimTimer.Tick, AddressOf SnapAnimTick
+        End If
+        If Not _snapAnimTimer.IsEnabled Then _snapAnimTimer.Start()
+    End Sub
+
+    '预览窗补间动画：每帧在设备像素层面插值并 SetWindowPos 落位
+    Private Sub SnapAnimTick(sender As Object, e As EventArgs)
+        If _snapPreview Is Nothing OrElse Not _snapPreview.IsVisible OrElse _snapAnimTimer Is Nothing Then
+            If _snapAnimTimer IsNot Nothing Then _snapAnimTimer.Stop()
+            Return
+        End If
+        Dim elapsed = (Date.Now - _snapAnimStart).TotalMilliseconds
+        Dim t = Math.Min(1, elapsed / SNAP_ANIM_MS)
+        Dim k = 1 - Math.Pow(1 - t, 3) 'EaseOutCubic
+        Dim x = _snapAnimFromX + (_snapAnimToX - _snapAnimFromX) * k
+        Dim y = _snapAnimFromY + (_snapAnimToY - _snapAnimFromY) * k
+        Dim w = _snapAnimFromW + (_snapAnimToW - _snapAnimFromW) * k
+        Dim h = _snapAnimFromH + (_snapAnimToH - _snapAnimFromH) * k
+        _snapAnimX = x : _snapAnimY = y : _snapAnimW = w : _snapAnimH = h
+        Dim hwnd = New System.Windows.Interop.WindowInteropHelper(_snapPreview).Handle
+        If hwnd <> IntPtr.Zero Then PlaceSnapPreview(hwnd, x, y, w, h)
+        If t >= 1 Then _snapAnimTimer.Stop()
     End Sub
     Private Sub HideSnapPreview()
         _snapPreviewZone = ""
+        If _snapAnimTimer IsNot Nothing Then _snapAnimTimer.Stop()
         If _snapPreview IsNot Nothing AndAlso _snapPreview.IsVisible Then _snapPreview.Hide()
     End Sub
 
