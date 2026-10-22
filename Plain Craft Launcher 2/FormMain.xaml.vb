@@ -667,6 +667,10 @@ Public Class FormMain
     Private _snapAnimStart As Date = Nothing
     Private _snapAnimTimer As System.Windows.Threading.DispatcherTimer = Nothing
     Private Const SNAP_ANIM_MS As Integer = 140
+    '切走时快照：用于区分“用户手动改尺寸”与“系统/显示变化改尺寸”。离开时记录窗口 DIP 尺寸与所在屏工作区，
+    '切回时若尺寸与屏工作区都未变 → 保留手动尺寸（含 1/4 拖角二维改尺寸）；否则复位到分屏标准尺寸消隙。
+    Private _snapDeactW As Double = -1, _snapDeactH As Double = -1
+    Private _snapDeactSW As Integer = -1, _snapDeactSH As Integer = -1
 
     Private Sub FormDragMove(sender As Object, e As MouseButtonEventArgs) Handles PanTitle.MouseLeftButtonDown, PanMsg.MouseLeftButtonDown
         On Error Resume Next
@@ -905,19 +909,57 @@ Public Class FormMain
             s = GetScreenScale(New System.Windows.Point(rL + rW / 2, rT + rH / 2))
         End If
         Logger.Info($"[SNAP] ApplySnapGeometry: zone='{zone}' devRect=({rL},{rT},{rW},{rH}) scale=({s.X},{s.Y}) repin={scrPassed} preserveSize={preserveSize}")
-        Me.Left = rL / s.X
-        Me.Top = rT / s.Y
-        'preserveSize=True（切回重钉且用户手动调过宽高）：只重钉位置(Left/Top)并保留手动宽高。
-        '区分“手动缩小”与“系统缩小”：手动只拖一条边 → 仅一维变小、其余边仍贴屏，应保留；
-        '系统缩小(分辨率/DPI 变化把窗口整体重算)是两维同时变小、右/下一起离屏 → 复位到分屏标准尺寸消隙。
-        '故用 AndAlso：仅当 Width 与 Height 都小于分屏尺寸(含 1px 容差防舍入)才复位；只缩一维则保留。
+        '计算落位尺寸（设备像素）：
+        ' 非 preserve（拖动吸附）→ 用分屏标准尺寸；
+        ' preserve（切回重钉）→ 默认保留手动尺寸，仅当“离开时快照”与当前不符（被系统/显示变化改过，或屏工作区变了）才复位。
+        Dim curW As Double, curH As Double
         If Not preserveSize Then
-            Me.Width = rW / s.X
-            Me.Height = rH / s.Y
+            curW = rW : curH = rH
         Else
+            curW = Me.Width * s.X : curH = Me.Height * s.Y
             Dim tW = rW / s.X, tH = rH / s.Y
-            If Me.Width < tW - 1 AndAlso Me.Height < tH - 1 Then Me.Width = tW : Me.Height = tH
+            Dim fitChanged As Boolean
+            If _snapDeactW < 0 Then
+                '无快照：回退到“两维同时缩小才复位”（手动拖一条边只变一维，保留）
+                fitChanged = (Me.Width < tW - 1 AndAlso Me.Height < tH - 1)
+            Else
+                '尺寸被改(系统缩小) 或 所在屏工作区变化(分辨率/DPI) → 复位消隙；
+                '否则（含 1/4 拖角二维改尺寸，两条屏幕锚边仍贴屏）保留手动尺寸。
+                fitChanged = (Math.Abs(Me.Width - _snapDeactW) > 2) OrElse (Math.Abs(Me.Height - _snapDeactH) > 2) _
+                             OrElse (_snapDeactSW > 0 AndAlso Math.Abs(W - _snapDeactSW) > 2) OrElse (_snapDeactSH > 0 AndAlso Math.Abs(H - _snapDeactSH) > 2)
+            End If
+            If fitChanged Then curW = rW : curH = rH
+            '夹紧到工作区：手动放大后若仍按内部边钉位会导致对侧越出屏幕，故限制在屏内
+            curW = Math.Min(curW, W) : curH = Math.Min(curH, H)
         End If
+        '按吸附区“贴屏边”锚定落位：屏幕锚边贴屏，内部边按尺寸自由延伸（手动放大即保留在屏内，不会溢出）
+        Dim anchorLeft As Boolean, anchorRight As Boolean, anchorTop As Boolean, anchorBottom As Boolean
+        Select Case zone
+            Case "Top"        : anchorLeft = True : anchorRight = True : anchorTop = True : anchorBottom = True
+            Case "Left"       : anchorLeft = True : anchorRight = False : anchorTop = True : anchorBottom = True
+            Case "Right"      : anchorLeft = False : anchorRight = True : anchorTop = True : anchorBottom = True
+            Case "TopLeft"    : anchorLeft = True : anchorRight = False : anchorTop = True : anchorBottom = False
+            Case "TopRight"   : anchorLeft = False : anchorRight = True : anchorTop = True : anchorBottom = False
+            Case "BottomLeft" : anchorLeft = True : anchorRight = False : anchorTop = False : anchorBottom = True
+            Case "BottomRight": anchorLeft = False : anchorRight = True : anchorTop = False : anchorBottom = True
+        End Select
+        Dim x As Double, y As Double
+        If anchorLeft AndAlso anchorRight Then
+            x = L : curW = W
+        ElseIf anchorLeft Then
+            x = L
+        Else
+            x = L + W - curW
+        End If
+        If anchorTop AndAlso anchorBottom Then
+            y = T : curH = H
+        ElseIf anchorTop Then
+            y = T
+        Else
+            y = T + H - curH
+        End If
+        Me.Left = x / s.X : Me.Top = y / s.Y
+        Me.Width = curW / s.X : Me.Height = curH / s.Y
         Logger.Info($"[SNAP] ApplySnapGeometry set: L={Me.Left} T={Me.Top} W={Me.Width} H={Me.Height} MinW={Me.MinWidth} preserveSize={preserveSize}")
     End Sub
 
@@ -1357,6 +1399,19 @@ End Sub
                 ClipboardSet(Nothing, False)
             End Sub)
         End Sub)
+    End Sub
+
+    '切走时快照窗口尺寸与所在屏工作区：用于 FormMain_Activated 重钉时区分“手动改尺寸”与“系统/显示变化改尺寸”
+    Private Sub FormMain_Deactivated() Handles Me.Deactivated
+    If _isSnapped AndAlso _snapCurrentZone <> "" Then
+        Try
+            _snapDeactW = Me.Width : _snapDeactH = Me.Height
+            Dim h = New System.Windows.Interop.WindowInteropHelper(Me).Handle
+            Dim sc = System.Windows.Forms.Screen.FromHandle(h)
+            If sc IsNot Nothing Then _snapDeactSW = sc.WorkingArea.Width : _snapDeactSH = sc.WorkingArea.Height
+        Catch
+        End Try
+    End If
     End Sub
 
     '文件拖放
