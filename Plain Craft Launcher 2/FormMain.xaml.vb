@@ -814,11 +814,11 @@ Public Class FormMain
         Dim sc = GetScreenScale(cur) '目标屏 DPI（device/DIP）
         '窗口几何（DIP）→ 设备像素，与 Screen.Bounds 同坐标系比较
         Dim dL = L * sc.X, dT = T * sc.Y, dR = (L + W) * sc.X, dB = (T + H) * sc.Y
-        Dim t = 16 '阈值（设备像素），窗口任一边进入此范围即判定吸附
-        Dim inLeft = dL <= b.Left + t
-        Dim inRight = dR >= b.Right - t
-        Dim inTop = dT <= b.Top + t
-        Dim inBottom = dB >= b.Bottom - t
+        Dim thr = 16 '阈值（设备像素），窗口任一边进入此范围即判定吸附
+        Dim inLeft = dL <= b.Left + thr
+        Dim inRight = dR >= b.Right - thr
+        Dim inTop = dT <= b.Top + thr
+        Dim inBottom = dB >= b.Bottom - thr
         If inTop AndAlso inLeft Then Return "TopLeft"
         If inTop AndAlso inRight Then Return "TopRight"
         If inBottom AndAlso inLeft Then Return "BottomLeft"
