@@ -806,11 +806,12 @@ Public Class FormMain
 
     '统一设置窗口装饰（圆角/边距/缩放条/最大化按钮图标）
     Private Sub ApplyWindowChrome(maximized As Boolean)
-        Logger.Info($"[SNAP] ApplyWindowChrome: maximized={maximized} -> BF={If(maximized, 0, 8)} PB={If(maximized, 0, 10)}")
+        Logger.Info($"[SNAP] ApplyWindowChrome: maximized={maximized} -> BF=0 PB=0（白卡铺满窗口）")
         RectForm.RadiusX = If(maximized, 0, 6)
         RectForm.RadiusY = If(maximized, 0, 6)
-        PanBack.Margin = If(maximized, New Thickness(0), New Thickness(10))
-        BorderForm.Margin = If(maximized, New Thickness(0), New Thickness(8))
+        '白卡铺满窗口：取消 18px 内缩（PanBack 10 + BorderForm 8），自由态与吸附态均让内容卡贴满窗口边缘
+        PanBack.Margin = New Thickness(0)
+        BorderForm.Margin = New Thickness(0)
         '仅"真正最大化"时隐藏缩放条；分屏(B 模式，WindowState 仍为 Normal)与自由窗口都保留缩放条，允许拖边改大小（#2）
         SetResizersVisibility(WindowState <> WindowState.Maximized)
         BtnTitleMax.Logo = If(WindowState = WindowState.Maximized, "F1 M6,2 h13 v13 h-3 M6,2 v3 M3,5 h13 v13 h-13 Z", "F1 M2,2 h16 v16 h-16 Z")
