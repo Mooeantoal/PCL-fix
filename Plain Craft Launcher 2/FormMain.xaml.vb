@@ -375,6 +375,10 @@ Public Class FormMain
         System.Windows.Controls.Panel.SetZIndex(ResizerLB, 1)
         System.Windows.Controls.Panel.SetZIndex(ResizerRT, 1)
         System.Windows.Controls.Panel.SetZIndex(ResizerRB, 1)
+        '去掉 8 条 resize 热区的半透明渐变（提到内容上层后会在边缘叠出“内缩阴影框”）；Fill=Transparent 仍可命中拖拽
+        For Each rz As System.Windows.Shapes.Rectangle In {ResizerT, ResizerB, ResizerL, ResizerR, ResizerLT, ResizerLB, ResizerRT, ResizerRB}
+            rz.Fill = System.Windows.Media.Brushes.Transparent
+        Next
         'PLC 彩蛋
         If RandomInteger(1, 1000) = 233 Then
             ShapeTitleLogo.Data = New GeometryConverter().ConvertFromString("M26,29 v-25 h6 a7,7 180 0 1 0,14 h-6 M83,6.5 a10,11.5 180 1 0 0,18 M48,2.5 v24.5 h13.5")
@@ -810,14 +814,11 @@ Public Class FormMain
 
     '统一设置窗口装饰（圆角/边距/缩放条/最大化按钮图标）
     Private Sub ApplyWindowChrome(maximized As Boolean)
-        Logger.Info($"[SNAP] ApplyWindowChrome: maximized={maximized} -> BF=0 PB=0（白卡铺满窗口）")
-        '方角：仅自由悬浮窗口保留 6px 圆角；贴边（吸附/最大化）改方角，避免圆角裁剪在屏幕边形成透明缺角（即用户说的“边界半透明框”）
-        Dim round = Not (maximized Or _isSnapped)
-        RectForm.RadiusX = If(round, 6, 0)
-        RectForm.RadiusY = If(round, 6, 0)
-        '白卡铺满窗口：取消 18px 内缩（PanBack 10 + BorderForm 8），自由态与吸附态均让内容卡贴满窗口边缘
-        PanBack.Margin = New Thickness(0)
-        BorderForm.Margin = New Thickness(0)
+        Logger.Info($"[SNAP] ApplyWindowChrome: maximized={maximized} -> BF={If(maximized, 0, 8)} PB={If(maximized, 0, 10)}")
+        RectForm.RadiusX = If(maximized, 0, 6)
+        RectForm.RadiusY = If(maximized, 0, 6)
+        PanBack.Margin = If(maximized, New Thickness(0), New Thickness(10))
+        BorderForm.Margin = If(maximized, New Thickness(0), New Thickness(8))
         '仅"真正最大化"时隐藏缩放条；分屏(B 模式，WindowState 仍为 Normal)与自由窗口都保留缩放条，允许拖边改大小（#2）
         SetResizersVisibility(WindowState <> WindowState.Maximized)
         BtnTitleMax.Logo = If(WindowState = WindowState.Maximized, "F1 M6,2 h13 v13 h-3 M6,2 v3 M3,5 h13 v13 h-13 Z", "F1 M2,2 h16 v16 h-16 Z")
@@ -859,7 +860,7 @@ Public Class FormMain
     '钳成"当前窗口尺寸"导致缩小被卡；WM_GETMINMAXINFO 已把 ptMinTrackSize 设成 Me.MinWidth（=0）换算后的设备像素，故完全不钳制。
     '_Up 结束时由 RestoreMinSize 按实际尺寸安全恢复最小尺寸（1/4 分屏不会被 400 撑大）。
     'scr 可传入：拖动吸附时不传（按光标所在屏判定）；切回窗口重钉时传入（按窗口当前所在屏，避免光标在别处钉错屏）
-    Private Sub ApplySnapGeometry(zone As String, Optional scr As System.Windows.Forms.Screen = Nothing)
+    Private Sub ApplySnapGeometry(zone As String, Optional scr As System.Windows.Forms.Screen = Nothing, Optional preserveSize As Boolean = False)
         On Error Resume Next
         If WindowState = WindowState.Maximized Then WindowState = WindowState.Normal
         '放开最小尺寸：WPF 的 MinWidth 钳制发生在属性层，会把刚贴好边的窗口强行撑大，越过分区边界。
@@ -896,12 +897,15 @@ Public Class FormMain
         Else
             s = GetScreenScale(New System.Windows.Point(rL + rW / 2, rT + rH / 2))
         End If
-        Logger.Info($"[SNAP] ApplySnapGeometry: zone='{zone}' devRect=({rL},{rT},{rW},{rH}) scale=({s.X},{s.Y}) repin={scrPassed}")
+        Logger.Info($"[SNAP] ApplySnapGeometry: zone='{zone}' devRect=({rL},{rT},{rW},{rH}) scale=({s.X},{s.Y}) repin={scrPassed} preserveSize={preserveSize}")
         Me.Left = rL / s.X
         Me.Top = rT / s.Y
-        Me.Width = rW / s.X
-        Me.Height = rH / s.Y
-        Logger.Info($"[SNAP] ApplySnapGeometry set: L={Me.Left} T={Me.Top} W={Me.Width} H={Me.Height} MinW={Me.MinWidth}")
+        'preserveSize=True（切回重钉且用户手动调过宽高）时只重钉位置(Left/Top)，保留当前手动宽高，避免把窗口拉回分屏标准尺寸
+        If Not preserveSize Then
+            Me.Width = rW / s.X
+            Me.Height = rH / s.Y
+        End If
+        Logger.Info($"[SNAP] ApplySnapGeometry set: L={Me.Left} T={Me.Top} W={Me.Width} H={Me.Height} MinW={Me.MinWidth} preserveSize={preserveSize}")
     End Sub
 
     '恢复常规最小尺寸（400/300）。必须取"不超过当前窗口实际尺寸"的值：
@@ -1270,7 +1274,7 @@ End Sub
                 Dim hwnd = New System.Windows.Interop.WindowInteropHelper(Me).Handle
                 Dim scr = System.Windows.Forms.Screen.FromHandle(hwnd)
                 If scr IsNot Nothing Then
-                    ApplySnapGeometry(_snapCurrentZone, scr)
+                    ApplySnapGeometry(_snapCurrentZone, scr, preserveSize:=True) '只重钉位置，保留手动宽高
                     RestoreMinSize()
                     Logger.Info($"[SNAP] Activated 重新钉边: zone='{_snapCurrentZone}' L={Me.Left} T={Me.Top} W={Me.Width} H={Me.Height}")
                 End If
