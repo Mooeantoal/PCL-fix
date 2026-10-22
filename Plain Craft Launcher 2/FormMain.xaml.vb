@@ -942,7 +942,7 @@ Public Class FormMain
         w.ResizeMode = System.Windows.ResizeMode.NoResize
         w.ShowActivated = False
         w.IsHitTestVisible = False
-        w.Opacity = 0 '完美视觉隐藏吸附预览框（吸附判定只看光标区，与其可见性无关；如要恢复提示把此行删去或设为 1）
+        w.Opacity = 1 '恢复吸附预览框（蓝色半透明提示）
         Dim border As New System.Windows.Controls.Border()
         border.Background = New MyColor(70, 0, 120, 215)
         border.CornerRadius = New System.Windows.CornerRadius(6)
