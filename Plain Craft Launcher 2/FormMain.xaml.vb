@@ -344,6 +344,8 @@ Public Class FormMain
     Private Sub FormMain_Loaded(sender As Object, e As RoutedEventArgs) Handles Me.Loaded
         ApplicationStartTick = GetTimeMs()
         Handle = New WindowInteropHelper(Me).Handle
+        '显示配置(分辨率/DPI)变化监听：即使窗口未失焦也立即重钉分屏窗，消除空隙/溢出
+        AddHandler Microsoft.Win32.SystemEvents.DisplaySettingsChanged, AddressOf Snap_OnDisplaySettingsChanged
         '读取设置
         UpdateBackgroundAndTitleBar()
         PageSetupUI.HiddenRefresh()
@@ -1412,6 +1414,25 @@ End Sub
         Catch
         End Try
     End If
+    End Sub
+
+    '显示配置(分辨率/DPI)变化时，即使窗口未失焦也立即重钉到分屏区域，消除空隙/溢出
+    '（覆盖“切回窗口才检测”覆盖不到的场景：PCL 一直最前台、从未失焦时改了分辨率）
+    Private Sub Snap_OnDisplaySettingsChanged(sender As Object, e As EventArgs)
+        If Not _isSnapped OrElse _snapCurrentZone = "" OrElse WindowState = WindowState.Maximized Then Return
+        Try
+            Dim h = New System.Windows.Interop.WindowInteropHelper(Me).Handle
+            Dim scr = System.Windows.Forms.Screen.FromHandle(h)
+            If scr Is Nothing Then Return
+            'SystemEvents 事件可能在非 UI 线程引发，需回到 UI 线程操作 WPF 属性
+            Me.Dispatcher.Invoke(Sub()
+                ApplySnapGeometry(_snapCurrentZone, scr, preserveSize:=False) '显示变化：直接按新屏标准尺寸重钉，贴合新屏
+                RestoreMinSize()
+                Logger.Info($"[SNAP] DisplaySettingsChanged 重钉: zone='{_snapCurrentZone}' L={Me.Left} T={Me.Top} W={Me.Width} H={Me.Height}")
+            End Sub)
+        Catch ex As Exception
+            Logger.Error(ex, "[SNAP] DisplaySettingsChanged 重钉异常")
+        End Try
     End Sub
 
     '文件拖放
