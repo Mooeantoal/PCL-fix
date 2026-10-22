@@ -1,3 +1,4 @@
+Imports System.Runtime.InteropServices 'GetCursorPos 的 <Out()> 属性需要此命名空间'
 Imports System.Windows.Threading
 
 Public Class MyResizer
