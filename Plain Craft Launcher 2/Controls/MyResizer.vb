@@ -1,5 +1,3 @@
-Imports System.Runtime.InteropServices
-Imports System.Windows.Interop
 Imports System.Windows.Threading
 
 Public Class MyResizer
@@ -14,52 +12,6 @@ Public Class MyResizer
             Me.y = y
         End Sub
     End Structure
-    Private Structure MINMAXINFO
-        Public ptReserved As POINT
-        Public ptMaxSize As POINT
-        Public ptMaxPosition As POINT
-        Public ptMinTrackSize As POINT
-        Public ptMaxTrackSize As POINT
-    End Structure
-    Private Structure RECT
-        Public left As Integer
-        Public top As Integer
-        Public right As Integer
-        Public bottom As Integer
-        Public Shared Empty As RECT = Nothing
-
-        Public ReadOnly Property Width() As Integer
-            Get
-                Return Math.Abs(Me.right - Me.left)
-            End Get
-        End Property
-        Public ReadOnly Property Height() As Integer
-            Get
-                Return Me.bottom - Me.top
-            End Get
-        End Property
-
-        Public Sub New(left As Integer, top As Integer, right As Integer, bottom As Integer)
-            Me.left = left
-            Me.top = top
-            Me.right = right
-            Me.bottom = bottom
-        End Sub
-        Public Sub New(rcSrc As RECT)
-            Me.left = rcSrc.left
-            Me.top = rcSrc.top
-            Me.right = rcSrc.right
-            Me.bottom = rcSrc.bottom
-        End Sub
-    End Structure
-
-    <StructLayout(LayoutKind.Sequential, CharSet:=CharSet.Auto)>
-    Private Class MONITORINFO
-        Public cbSize As Integer = Marshal.SizeOf(GetType(MONITORINFO))
-        Public rcMonitor As RECT = Nothing
-        Public rcWork As RECT = Nothing
-        Public dwFlags As Integer = 0
-    End Class
 
     Private Structure PointAPI
         Public X As Integer
@@ -82,53 +34,10 @@ Public Class MyResizer
     Private startWindowSize As Size = Nothing
     Private startWindowLeftUpPoint As POINT = Nothing
 
-    Private Shared workAreaMaxHeight As Integer = -1
-
-    Private hs As HwndSource
-
     Public Sub New(target As Window)
         Me.target = target
         If IsNothing(target) Then Throw New Exception("Invalid Window handle")
-        AddHandler target.SourceInitialized, AddressOf Me.MyMacClass_SourceInitialized
     End Sub
-
-    Private Sub MyMacClass_SourceInitialized(sender As Object, e As EventArgs)
-        Me.hs = (TryCast(PresentationSource.FromVisual(CType(sender, Visual)), HwndSource))
-        Me.hs.AddHook(AddressOf Me.WndProc)
-    End Sub
-
-    Private Function WndProc(hwnd As IntPtr, msg As Integer, wParam As IntPtr, lParam As IntPtr, ByRef handled As Boolean) As IntPtr
-        If msg = 36 Then
-            WmGetMinMaxInfo(hwnd, lParam)
-            handled = True
-        End If
-        Return CType(0, IntPtr)
-    End Function
-
-    Private Shared Sub WmGetMinMaxInfo(hwnd As IntPtr, lParam As IntPtr)
-        Dim mINMAXINFO As MINMAXINFO = CType(Marshal.PtrToStructure(lParam, GetType(MINMAXINFO)), MINMAXINFO)
-        Dim flags As Integer = 2
-        Dim intPtr As IntPtr = MonitorFromWindow(hwnd, flags)
-        Dim flag As Boolean = intPtr <> IntPtr.Zero
-        If flag Then
-            Dim mONITORINFO As New MONITORINFO()
-            GetMonitorInfo(intPtr, mONITORINFO)
-            Dim rcWork As RECT = mONITORINFO.rcWork
-            Dim rcMonitor As RECT = mONITORINFO.rcMonitor
-            mINMAXINFO.ptMaxPosition.x = Math.Abs(rcWork.left - rcMonitor.left)
-            mINMAXINFO.ptMaxPosition.y = Math.Abs(rcWork.top - rcMonitor.top)
-            mINMAXINFO.ptMaxSize.y = Math.Abs(rcWork.bottom - rcWork.top)
-            workAreaMaxHeight = mINMAXINFO.ptMaxSize.y
-            If rcWork.Height = rcMonitor.Height Then
-                mINMAXINFO.ptMaxSize.y -= 2
-            End If
-        End If
-        Marshal.StructureToPtr(mINMAXINFO, lParam, True)
-    End Sub
-
-    Private Declare Function GetMonitorInfo Lib "user32" (hMonitor As IntPtr, lpmi As MONITORINFO) As Boolean
-
-    Private Declare Function MonitorFromWindow Lib "User32" (handle As IntPtr, flags As Integer) As IntPtr
 
     Private Sub connectMouseHandlers(element As UIElement)
         AddHandler element.MouseLeftButtonDown, AddressOf Me.element_MouseLeftButtonDown
@@ -232,19 +141,16 @@ Public Class MyResizer
             If resizeDown Then
                 If target.Height = target.MinHeight Then
                     If startMousePoint.Y < pointAPI.Y Then
-                        If workAreaMaxHeight > 0 Then
-                            NewHeight = If((startWindowSize.Height - (startMousePoint.Y - pointAPI.Y) + target.Top <= workAreaMaxHeight), (startWindowSize.Height - ((startMousePoint.Y - pointAPI.Y))), ((workAreaMaxHeight) - target.Top))
-                        Else
-                            NewHeight = startWindowSize.Height - (startMousePoint.Y - pointAPI.Y)
-                        End If
+                        '这里原本还有一个"限制拖拽高度不超过工作区"的分支（依赖 workAreaMaxHeight），
+                        '但它依赖的 WM_GETMINMAXINFO hook 从未注册（SourceInitialized 在 Handle 已创建后才注册，
+                        '事件不会补发），workAreaMaxHeight 恒为 -1，分支恒不进入。
+                        '且该分支把设备像素的 workAreaMaxHeight 与 DIP 的 target.Top 混算，启用反而会算错。
+                        '故此处直接采用实际生效的逻辑：按鼠标位移计算新高度。
+                        NewHeight = startWindowSize.Height - (startMousePoint.Y - pointAPI.Y)
                     End If
                 Else
                     If startWindowSize.Height - (startMousePoint.Y - pointAPI.Y) >= target.MinHeight Then
-                        If workAreaMaxHeight > 0 Then
-                            NewHeight = If((startWindowSize.Height - (startMousePoint.Y - pointAPI.Y) + target.Top <= (workAreaMaxHeight)), (startWindowSize.Height - (startMousePoint.Y - pointAPI.Y)), ((workAreaMaxHeight) - target.Top))
-                        Else
-                            NewHeight = startWindowSize.Height - (startMousePoint.Y - pointAPI.Y)
-                        End If
+                        NewHeight = startWindowSize.Height - (startMousePoint.Y - pointAPI.Y)
                     Else
                         NewHeight = target.MinHeight
                     End If

@@ -44,7 +44,7 @@ Friend Module ModSecret
             ElseIf System.Threading.Interlocked.Exchange(CurseForgeKeyMissingWarned, 1) = 0 Then
                 '只提示一次，避免反复刷屏
                 Logger.Warn("未配置 CurseForge API Key，无法加载 CurseForge 模组。" & vbCrLf &
-                            "请设置环境变量 PCL_CURSEFORGE_API_KEY，或在程序目录下放置 cf_api_key.txt。", LogBehavior.Toast)
+                            "请设置环境变量 PCL_CURSEFORGE_API_KEY 后重启程序。", LogBehavior.Toast)
             End If
         End If
     End Sub

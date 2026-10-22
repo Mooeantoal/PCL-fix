@@ -696,15 +696,15 @@ Public Class FormMain
         If Not _dragMoved Then Return
         If _snapZone = "Top" Then
             WindowState = WindowState.Maximized '接触上边缘 → 最大化
-            Me.MinWidth = 400 : Me.MinHeight = 300
+            RestoreMinSize()
         ElseIf _snapZone <> "" Then
             ApplySnapGeometry(_snapZone) '左右 1/2 / 四角 1/4 分屏
             ApplyWindowChrome(True) '去圆角/阴影，但 WindowState 仍为 Normal（最大化按钮保持窗口形态）
-            '分屏态同样使用统一最小尺寸 400/300（不再放开为 0）；多数设备半屏宽≥400，仍精确贴边
-            Me.MinWidth = 400 : Me.MinHeight = 300
+            '分屏态的安全恢复：不能直接写死 400/300，否则 1/4 分屏会被 WPF 的 MinWidth 钳制撑大、越过分区中线
+            RestoreMinSize()
         Else
             ApplyWindowChrome(False) '落到中间恢复圆角/阴影
-            Me.MinWidth = 400 : Me.MinHeight = 300
+            RestoreMinSize()
         End If
         HideSnapPreview()
         _snapZone = ""
@@ -752,7 +752,10 @@ Public Class FormMain
     Private Sub FormMain_StateChanged(sender As Object, e As EventArgs) Handles Me.StateChanged
         Dim isMax = (WindowState = WindowState.Maximized)
         ApplyWindowChrome(isMax)
-        If Not isMax Then Me.MinWidth = 400 : Me.MinHeight = 300
+        '无论最大化还是还原都要恢复最小尺寸：
+        '若在还原时无条件写死 400/300，会把 1/4 分屏（实测 480x257 设备像素）撑成 500x375，破坏贴边几何。
+        'StateChanged 触发时 Me.Width/Height 已是变化后的实际值，据此安全恢复即可。
+        RestoreMinSize()
     End Sub
 
     '统一设置窗口装饰（圆角/边距/缩放条/最大化按钮图标）
@@ -766,6 +769,11 @@ Public Class FormMain
     End Sub
 
     'Aero Snap 区域检测（屏幕像素坐标，阈值 6px）
+    '注意：这里用 scr.Bounds（全屏物理边缘）做"是否触边"的判定，而 ApplySnapGeometry 用 scr.WorkingArea
+    '（去掉任务栏的工作区）做"吸附到哪"的定位——这是有意为之，和 Windows 原生 Aero Snap 一致：
+    '触发条件看的是"鼠标是否碰到显示器物理边缘"，吸附目标才是工作区。
+    '因此底部有任务栏时，鼠标压到屏幕最下沿会判成 BottomLeft/BottomRight，
+    '而吸附后的矩形高度按工作区对半分割（不会伸进任务栏），这与系统行为一致。
     Private Function DetectSnapZone(cur As System.Windows.Point) As String
         Dim scr = System.Windows.Forms.Screen.FromPoint(New System.Drawing.Point(CInt(cur.X), CInt(cur.Y)))
         If scr Is Nothing Then Return ""
@@ -793,6 +801,58 @@ Public Class FormMain
     Private Const SWP_NOACTIVATE As UInteger = &H10UI
     Private Const SWP_FRAMECHANGED As UInteger = &H20UI
 
+    '把窗口几何吸附到指定分屏区域。
+    '坐标空间：**全程只用设备像素**，用 SetWindowPos 直接定位，不回写 WPF 的 Left/Top/Width/Height。
+    '原因：WPF 这四个属性在 PerMonitorV2 下是"相对虚拟屏原点的 DIP"，跨不同 DPI 的屏幕时语义本身不可靠；
+    '手工回写等于引入"目标屏 DPI ↔ WPF 内部 DPI 上下文"两套换算，跨 DPI 时必然错位（表现为大空隙/越界裁切）。
+    '实测：外部 SetWindowPos 之后 WPF 会自行把 Left/Top/Width/Height 同步为该矩形的 DIP 值，
+    '      因此回写是多余的第二次换算，删掉即可消除错位来源。
+    '同时使用光标所在屏（与 DetectSnapZone 一致），避免窗口自身屏与光标屏不一致导致跨屏吸附错位/裁切。
+    Private Sub ApplySnapGeometry(zone As String)
+        Dim hwnd = New System.Windows.Interop.WindowInteropHelper(Me).Handle
+        If hwnd = IntPtr.Zero Then Return
+        If WindowState = WindowState.Maximized Then WindowState = WindowState.Normal
+        '放开最小尺寸：WPF 的 MinWidth 钳制发生在属性层，会把刚贴好边的窗口强行撑大，越过分区边界。
+        '这里先归零，_Up 结束时再按实际尺寸安全恢复（见 RestoreMinSize）。
+        Me.MinWidth = 0 : Me.MinHeight = 0
+        Dim cur = GetCursorPixel()
+        Dim scr = System.Windows.Forms.Screen.FromPoint(New System.Drawing.Point(CInt(cur.X), CInt(cur.Y)))
+        If scr Is Nothing Then Return
+        Dim wa = scr.WorkingArea '设备像素
+        Dim L = wa.Left, T = wa.Top, W = wa.Width, H = wa.Height
+        Dim rL As Integer, rT As Integer, rW As Integer, rH As Integer
+        Select Case zone
+            Case "Left"        : rL = L : rT = T : rW = W \ 2 : rH = H
+            Case "Right"       : rL = L + W \ 2 : rT = T : rW = W \ 2 : rH = H
+            Case "TopLeft"     : rL = L : rT = T : rW = W \ 2 : rH = H \ 2
+            Case "TopRight"    : rL = L + W \ 2 : rT = T : rW = W \ 2 : rH = H \ 2
+            Case "BottomLeft"  : rL = L : rT = T + H \ 2 : rW = W \ 2 : rH = H \ 2
+            Case "BottomRight" : rL = L + W \ 2 : rT = T + H \ 2 : rW = W \ 2 : rH = H \ 2
+            Case Else : Return
+        End Select
+        'WM_GETMINMAXINFO 已把 ptMaxTrackSize 放宽到虚拟屏，跨屏吸附不会被钳；设备像素定位不受 DPI 换算影响
+        SetWindowPos(hwnd, IntPtr.Zero, rL, rT, rW, rH, SWP_NOZORDER Or SWP_NOACTIVATE Or SWP_FRAMECHANGED)
+    End Sub
+
+    '恢复常规最小尺寸（400/300）。必须取"不超过当前窗口实际尺寸"的值：
+    'WPF 的 MinWidth/MinHeight 钳制发生在属性层，若直接设成 400/300，会把 1/4 分屏这类
+    '本来就比 400 小的窗口强行撑大（实测 1/4 目标 480x257 被撑成 500x375），从而越过分区中线；
+    '更糟的是撑大后 RestoreBounds 也被一并污染，之后即使最大化再还原也回不到原来的分屏尺寸。
+    '最大化状态下改用 RestoreBounds（还原目标尺寸）计算，否则还原时同样会被 400/300 钳住。
+    Private Sub RestoreMinSize()
+        Dim w As Double, h As Double
+        If WindowState = WindowState.Maximized Then
+            Dim rb = Me.RestoreBounds
+            w = If(rb.Width > 0, rb.Width, Me.Width)
+            h = If(rb.Height > 0, rb.Height, Me.Height)
+        Else
+            w = Me.Width
+            h = Me.Height
+        End If
+        Me.MinWidth = Math.Min(400, w)
+        Me.MinHeight = Math.Min(300, h)
+    End Sub
+
     <DllImport("user32.dll")>
     Private Shared Function MonitorFromPoint(pt As System.Drawing.Point, flags As UInteger) As IntPtr
     End Function
@@ -817,42 +877,6 @@ Public Class FormMain
         End Try
         Return DpiScale()
     End Function
-
-    '把窗口几何吸附到指定分屏区域：用设备像素 SetWindowPos 直接定位（绕过 WPF 的 DPI 换算），
-    '并使用光标所在屏（与 DetectSnapZone 一致），避免窗口自身屏与光标屏不一致导致跨屏吸附错位/裁切。
-    Private Sub ApplySnapGeometry(zone As String)
-        Dim hwnd = New System.Windows.Interop.WindowInteropHelper(Me).Handle
-        If hwnd = IntPtr.Zero Then Return
-        If WindowState = WindowState.Maximized Then WindowState = WindowState.Normal
-        Me.MinWidth = 0 : Me.MinHeight = 0 '放开最小尺寸，确保 SetWindowPos 精确贴边（_Up 末尾恢复 400/300）
-        Dim cur = GetCursorPixel()
-        Dim scr = System.Windows.Forms.Screen.FromPoint(New System.Drawing.Point(CInt(cur.X), CInt(cur.Y)))
-        If scr Is Nothing Then Return
-        Dim wa = scr.WorkingArea '设备像素
-        Dim L = wa.Left, T = wa.Top, W = wa.Width, H = wa.Height
-        Dim rL As Integer, rT As Integer, rW As Integer, rH As Integer
-        Select Case zone
-            Case "Left"        : rL = L : rT = T : rW = W \ 2 : rH = H
-            Case "Right"       : rL = L + W \ 2 : rT = T : rW = W \ 2 : rH = H
-            Case "TopLeft"     : rL = L : rT = T : rW = W \ 2 : rH = H \ 2
-            Case "TopRight"    : rL = L + W \ 2 : rT = T : rW = W \ 2 : rH = H \ 2
-            Case "BottomLeft"  : rL = L : rT = T + H \ 2 : rW = W \ 2 : rH = H \ 2
-            Case "BottomRight" : rL = L + W \ 2 : rT = T + H \ 2 : rW = W \ 2 : rH = H \ 2
-            Case Else : Return
-        End Select
-        'WM_GETMINMAXINFO 已把 ptMaxTrackSize 放宽到虚拟屏，跨屏吸附不会被钳；设备像素定位不受 DPI 换算影响
-        SetWindowPos(hwnd, IntPtr.Zero, rL, rT, rW, rH, SWP_NOZORDER Or SWP_NOACTIVATE Or SWP_FRAMECHANGED)
-        '同步 WPF 的 Left/Top/Width/Height 缓存为同一设备矩形（按当前 DPI 换算）：
-        '否则 WPF 会在后续（跨屏 DPI 变化 WM_DPICHANGED / 状态切换）重新应用其陈旧的 WPF 单位坐标，
-        '把我摆好的精确吸附覆盖掉，导致时而偏移、大间隙、出屏裁切（即"时而有时而没有"）。
-        '用当前 DPI 换算：在 DPI 变化被处理前，WPF 仍按当前 DPI 重应用，device = WPF×当前DPI = 原矩形；
-        'DPI 变化后 WPF 会回读真实矩形自行纠正，缓存始终与真实位置一致。
-        Dim s = GetScreenScale(cur) '目标屏 DPI：跨屏且 DPI 不同时必须用目标屏，否则换算错位
-        Me.Left = rL / s.X
-        Me.Top = rT / s.Y
-        Me.Width = rW / s.X
-        Me.Height = rH / s.Y
-    End Sub
 
     '实时吸附预览框：拖到边缘冻结时显示半透明矩形，提示将吸附到的区域（模拟 Windows 快照辅助）
     Private Sub EnsureSnapPreview()
@@ -896,12 +920,11 @@ Public Class FormMain
             Case "BottomRight": rL = L + W \ 2 : rT = T + H \ 2 : rW = W \ 2 : rH = H \ 2
         End Select
         SetWindowPos(phwnd, IntPtr.Zero, rL, rT, rW, rH, SWP_NOZORDER Or SWP_NOACTIVATE Or SWP_FRAMECHANGED)
-        '同步预览窗自身的 WPF 坐标缓存，避免 WPF 后续重新应用旧坐标导致预览错位/跳动
-        Dim ps = GetScreenScale(cur) '目标屏 DPI，跨屏不同 DPI 时避免预览错位
-        _snapPreview.Left = rL / ps.X
-        _snapPreview.Top = rT / ps.Y
-        _snapPreview.Width = rW / ps.X
-        _snapPreview.Height = rH / ps.Y
+        '不要再回写 _snapPreview 的 Left/Top/Width/Height：
+        '1) 外部 SetWindowPos 之后 WPF 会自动把属性同步为该矩形的 DIP 值，回写属于多余；
+        '2) 更关键的是回写用的是"目标屏 DPI 换算出的 DIP"，而 WPF 的 Left/Top 是相对虚拟屏原点的
+        '    系统 DPI 坐标空间，两者不是同一个坐标系——回写等于做了一次双重换算，
+        '    跨屏或不同 DPI 时会把预览框推到错误位置（与主窗口贴边错位是同一类根因）。
     End Sub
     Private Sub HideSnapPreview()
         If _snapPreview IsNot Nothing AndAlso _snapPreview.IsVisible Then _snapPreview.Hide()
@@ -1393,14 +1416,19 @@ End Sub
             Dim scr = System.Windows.Forms.Screen.FromHandle(hwnd)
             If scr IsNot Nothing Then
                 Dim wa = scr.WorkingArea
-                mmi.ptMaxPosition.X = wa.Left
-                mmi.ptMaxPosition.Y = wa.Top
+                'ptMaxPosition 是"相对所在显示器原点"的偏移，不是屏幕绝对坐标。
+                '直接写 wa.Left/wa.Top 在副屏上会重复加上显示器偏移，导致最大化窗口跑到屏幕外。
+                mmi.ptMaxPosition.X = wa.Left - scr.Bounds.Left
+                mmi.ptMaxPosition.Y = wa.Top - scr.Bounds.Top
                 mmi.ptMaxSize.X = wa.Width
                 mmi.ptMaxSize.Y = wa.Height
                 '下限跟随 WPF 的 MinWidth/MinHeight（吸附时已被临时放开为 0）：
-                'ResizeMode=CanMinimize 会让 WPF 把 ptMinTrackSize 设成"当前窗口尺寸"，导致 OS 在 WM_GETMINMAXINFO
-                '把 SetWindowPos 的吸附矩形钳住、无法小于当前窗口——分屏 1/2、1/4 需要缩小，于是贴边不精确/出现间隙
-                '（最大化是涨大，被 ptMaxTrackSize=虚拟屏 允许，所以正常）。这里用目标屏 DPI 把 MinWidth/MinHeight 转成设备像素。
+                'WPF 内部 hook 会把 ptMinTrackSize 设成 MinWidth/MinHeight 换算后的设备像素
+                '（实测 400x300 DIP @125% → 500x375 设备像素），OS 据此把 SetWindowPos 的请求尺寸钳住，
+                '导致分屏需要缩小时贴不进去、出现大空隙。这里用目标屏 DPI 把 MinWidth/MinHeight 转成设备像素再写回，
+                '使 ptMinTrackSize 与 WPF 属性保持一致（吸附时 MinWidth=0 → 完全不钳制）。
+                '注意：必须同时设置 handled=True，否则 WPF 内部 hook 会在本 hook 之后执行并覆盖 ptMinTrackSize
+                '（实测：不设 handled 时最终 ptMinTrackSize 仍为 500x375，SetWindowPos 被钳成 500x375）。
                 Dim sc = GetScreenScale(New System.Windows.Point(wa.Left + wa.Width / 2, wa.Top + wa.Height / 2))
                 mmi.ptMinTrackSize.X = CInt(Me.MinWidth * sc.X)
                 mmi.ptMinTrackSize.Y = CInt(Me.MinHeight * sc.Y)
