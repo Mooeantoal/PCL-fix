@@ -680,7 +680,7 @@ Public Class FormMain
             _dragMoved = True
             If WindowState = WindowState.Maximized Then WindowState = WindowState.Normal '最大化态拖拽先还原（模拟 Windows 行为）
         End If
-        '用"窗口若跟随光标会到达的位置"判边；触区则冻结，离开区则解冻恢复跟随
+        '光标判定吸附区（DetectSnapZone 用光标位置）：触区则冻结，离开区则解冻恢复跟随
         Dim zone = DetectSnapZone(cur)
         If _snapZone <> "" AndAlso zone = "" Then _snapZone = "" '此前冻结、现已离开吸附区：解冻
         If _snapZone = "" Then
@@ -701,7 +701,7 @@ Public Class FormMain
             _dragging = False
             If TypeOf sender Is UIElement Then CType(sender, UIElement).ReleaseMouseCapture()
             If Not _dragMoved Then Return
-            '松手瞬间用当前光标重新判定吸附区：拖动中窗口在阈值内会冻结，但最后一条 MouseMove 可能恰好落在 6px 阈值外
+            '松手瞬间用当前光标重新判定吸附区：拖动中窗口在阈值内会冻结，但最后一条 MouseMove 可能恰好落在 16px 阈值外
             '（_snapZone 被清空），直接据此判定会漏吸附、落到 Else 分支（ApplyWindowChrome(False) 带 8/10 边距且不定位）
             '→ 四边均匀内缩。松手重新判定可消除该漏判。
             Dim zoneNow = DetectSnapZone(GetCursorPixel())
@@ -790,35 +790,28 @@ Public Class FormMain
         RectForm.RadiusY = If(maximized, 0, 6)
         PanBack.Margin = If(maximized, New Thickness(0), New Thickness(10))
         BorderForm.Margin = If(maximized, New Thickness(0), New Thickness(8))
-        SetResizersVisibility(Not maximized)
+        '仅"真正最大化"时隐藏缩放条；分屏(B 模式，WindowState 仍为 Normal)与自由窗口都保留缩放条，允许拖边改大小（#2）
+        SetResizersVisibility(WindowState <> WindowState.Maximized)
         BtnTitleMax.Logo = If(WindowState = WindowState.Maximized, "F1 M6,2 h13 v13 h-3 M6,2 v3 M3,5 h13 v13 h-13 Z", "F1 M2,2 h16 v16 h-16 Z")
     End Sub
 
-    'Aero Snap 区域检测（阈值 16px，判定窗口四边是否进入屏幕物理边缘）
-    '关键点：用"窗口若跟随光标会到达的位置"判边，而非光标本身。标题栏拖拽时光标相对窗口有偏移（_dragOffset），
-    '若以光标贴边判定，必须要把光标精确推到屏幕边（即把窗口拖出屏外）才能触发，导致几乎吸不上、表现像"贴边有间隙/不吸附"；
-    'Windows 原生 Aero Snap 也是"窗口边碰到屏边"即吸附，与光标位置无关。
-    '注意：触发看的是"窗口是否碰到显示器物理边缘"（scr.Bounds），吸附目标才是工作区（scr.WorkingArea，ApplySnapGeometry 用），
-    '底部有任务栏时窗口压到屏幕最下沿会判成 Bottom*，但吸附后矩形高度按工作区对半（不伸进任务栏），与系统行为一致。
+    'Aero Snap 区域检测：判定光标是否进入屏幕物理边缘/角（阈值 16px 设备像素）。
+    '用光标位置判边（而非窗口边）：拖动标题栏时光标相对窗口有偏移，若按窗口边判定，
+    '抓住已分屏窗口时窗口本就在屏边会立刻重新冻结、拖不出去（#1 拖出回不到 A 模式）；
+    '且预览应跟随鼠标（#3）。这与 Windows 原生 Aero Snap 一致——鼠标碰边即吸附，与窗口实际位置无关。
+    '注意：触发看的是"光标是否碰到显示器物理边缘"（scr.Bounds），吸附目标才是工作区（scr.WorkingArea，ApplySnapGeometry 用），
+    '底部有任务栏时光标压到屏幕最下沿会判成 Bottom*，但吸附后矩形高度按工作区对半（不伸进任务栏），与系统行为一致。
     Private Function DetectSnapZone(cur As System.Windows.Point) As String
-        Dim s = DpiScale()
-        Dim L = cur.X / s.X - _dragOffset.X
-        Dim T = cur.Y / s.Y - _dragOffset.Y
-        Return DetectSnapZoneRect(L, T, Me.Width, Me.Height, cur)
-    End Function
-
-    Private Function DetectSnapZoneRect(L As Double, T As Double, W As Double, H As Double, cur As System.Windows.Point) As String
         Dim scr = System.Windows.Forms.Screen.FromPoint(New System.Drawing.Point(CInt(cur.X), CInt(cur.Y)))
         If scr Is Nothing Then Return ""
         Dim b = scr.Bounds '全屏物理边缘（设备像素）
-        Dim sc = GetScreenScale(cur) '目标屏 DPI（device/DIP）
-        '窗口几何（DIP）→ 设备像素，与 Screen.Bounds 同坐标系比较
-        Dim dL = L * sc.X, dT = T * sc.Y, dR = (L + W) * sc.X, dB = (T + H) * sc.Y
-        Dim thr = 16 '阈值（设备像素），窗口任一边进入此范围即判定吸附
-        Dim inLeft = dL <= b.Left + thr
-        Dim inRight = dR >= b.Right - thr
-        Dim inTop = dT <= b.Top + thr
-        Dim inBottom = dB >= b.Bottom - thr
+        Dim sc = GetScreenScale(cur) '光标所在屏 DPI（device/DIP）
+        Dim cx = cur.X * sc.X, cy = cur.Y * sc.Y '光标 → 设备像素，与 Screen.Bounds 同坐标系
+        Dim thr = 16 '阈值（设备像素），光标进入此范围即判定吸附
+        Dim inLeft = cx <= b.Left + thr
+        Dim inRight = cx >= b.Right - thr
+        Dim inTop = cy <= b.Top + thr
+        Dim inBottom = cy >= b.Bottom - thr
         If inTop AndAlso inLeft Then Return "TopLeft"
         If inTop AndAlso inRight Then Return "TopRight"
         If inBottom AndAlso inLeft Then Return "BottomLeft"
