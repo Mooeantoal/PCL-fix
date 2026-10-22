@@ -640,6 +640,7 @@ Public Class FormMain
     Private _dragOffset As System.Windows.Point = New System.Windows.Point(0, 0) '光标相对窗口左上角的偏移（WPF 单位）
     Private _dragScreenStart As System.Windows.Point = New System.Windows.Point(0, 0) '拖拽起点（屏幕像素）
     Private _snapZone As String = ""
+    Private _snapActive As Boolean = False '吸附过程中置位，防止异步 StateChanged 把 ApplyWindowChrome 切回带边距状态
     Private _snapPreview As System.Windows.Window = Nothing '实时吸附预览框（半透明矩形）
 
     Private Sub FormDragMove(sender As Object, e As MouseButtonEventArgs) Handles PanTitle.MouseLeftButtonDown, PanMsg.MouseLeftButtonDown
@@ -694,17 +695,30 @@ Public Class FormMain
         _dragging = False
         If TypeOf sender Is UIElement Then CType(sender, UIElement).ReleaseMouseCapture()
         If Not _dragMoved Then Return
+        '松手瞬间用当前光标重新判定吸附区：拖动中窗口在阈值内会冻结，但最后一条 MouseMove 可能恰好落在 6px 阈值外
+        '（_snapZone 被清空），直接据此判定会漏吸附、落到 Else 分支（ApplyWindowChrome(False) 带 8/10 边距且不定位）
+        '→ 四边均匀内缩。松手重新判定可消除该漏判。
+        Dim zoneNow = DetectSnapZone(GetCursorPixel())
+        If _snapZone = "" Then _snapZone = zoneNow
+        Logger.Info($"[SNAP] Up: zone='{_snapZone}' reDetect='{zoneNow}' WS={WindowState} L={Me.Left} T={Me.Top} W={Me.Width} H={Me.Height}")
         If _snapZone = "Top" Then
             WindowState = WindowState.Maximized '接触上边缘 → 最大化
             RestoreMinSize()
         ElseIf _snapZone <> "" Then
+            _snapActive = True
             ApplySnapGeometry(_snapZone) '左右 1/2 / 四角 1/4 分屏
             ApplyWindowChrome(True) '去圆角/阴影，但 WindowState 仍为 Normal（最大化按钮保持窗口形态）
             '分屏态的安全恢复：不能直接写死 400/300，否则 1/4 分屏会被 WPF 的 MinWidth 钳制撑大、越过分区中线
             RestoreMinSize()
+            _snapActive = False
+            Logger.Info($"[SNAP] snapped: L={Me.Left} T={Me.Top} W={Me.Width} H={Me.Height} BF={BorderForm.Margin} PB={PanBack.Margin}")
+            '延迟复核：捕获 WPF 异步回写/StateChanged 造成的回弹
+            Dim ws = WindowState
+            Dispatcher.BeginInvoke(Sub() Logger.Info($"[SNAP] post: L={Me.Left} T={Me.Top} W={Me.Width} H={Me.Height} BF={BorderForm.Margin} PB={PanBack.Margin} WS={ws}"))
         Else
             ApplyWindowChrome(False) '落到中间恢复圆角/阴影
             RestoreMinSize()
+            Logger.Info($"[SNAP] middle: L={Me.Left} T={Me.Top} W={Me.Width} H={Me.Height} BF={BorderForm.Margin} PB={PanBack.Margin}")
         End If
         HideSnapPreview()
         _snapZone = ""
@@ -751,6 +765,9 @@ Public Class FormMain
     '窗口状态变化：最大化时去圆角/边距/缩放条，否则恢复
     Private Sub FormMain_StateChanged(sender As Object, e As EventArgs) Handles Me.StateChanged
         Dim isMax = (WindowState = WindowState.Maximized)
+        '吸附过程（_Up 内）中置位的保护：即便有异步 StateChanged，也保持去边距（margin 0），不被切回带边距状态
+        If _snapActive Then isMax = True
+        Logger.Info($"[SNAP] StateChanged: isMax={isMax} snapActive={_snapActive} WS={WindowState}")
         ApplyWindowChrome(isMax)
         '无论最大化还是还原都要恢复最小尺寸：
         '若在还原时无条件写死 400/300，会把 1/4 分屏（实测 480x257 设备像素）撑成 500x375，破坏贴边几何。
@@ -760,6 +777,7 @@ Public Class FormMain
 
     '统一设置窗口装饰（圆角/边距/缩放条/最大化按钮图标）
     Private Sub ApplyWindowChrome(maximized As Boolean)
+        Logger.Info($"[SNAP] ApplyWindowChrome: maximized={maximized} -> BF={If(maximized, 0, 8)} PB={If(maximized, 0, 10)}")
         RectForm.RadiusX = If(maximized, 0, 6)
         RectForm.RadiusY = If(maximized, 0, 6)
         PanBack.Margin = If(maximized, New Thickness(0), New Thickness(10))
@@ -809,7 +827,10 @@ Public Class FormMain
         Me.MinWidth = 0 : Me.MinHeight = 0
         Dim cur = GetCursorPixel()
         Dim scr = System.Windows.Forms.Screen.FromPoint(New System.Drawing.Point(CInt(cur.X), CInt(cur.Y)))
-        If scr Is Nothing Then Return
+        If scr Is Nothing Then
+            Logger.Info($"[SNAP] ApplySnapGeometry: scr Is Nothing，放弃定位 zone='{zone}'")
+            Return
+        End If
         Dim wa = scr.WorkingArea '设备像素
         Dim L = wa.Left, T = wa.Top, W = wa.Width, H = wa.Height
         Dim rL As Integer, rT As Integer, rW As Integer, rH As Integer
@@ -824,10 +845,12 @@ Public Class FormMain
         End Select
         'device → DIP 用目标屏 DPI（单屏下即窗口当前 DPI）；直接写 WPF 属性，WPF 自行落位并维护缓存
         Dim s = GetScreenScale(New System.Windows.Point(rL + rW / 2, rT + rH / 2))
+        Logger.Info($"[SNAP] ApplySnapGeometry: zone='{zone}' devRect=({rL},{rT},{rW},{rH}) scale=({s.X},{s.Y}) curDev=({cur.X},{cur.Y})")
         Me.Left = rL / s.X
         Me.Top = rT / s.Y
         Me.Width = rW / s.X
         Me.Height = rH / s.Y
+        Logger.Info($"[SNAP] ApplySnapGeometry set: L={Me.Left} T={Me.Top} W={Me.Width} H={Me.Height} MinW={Me.MinWidth}")
     End Sub
 
     '恢复常规最小尺寸（400/300）。必须取"不超过当前窗口实际尺寸"的值：
