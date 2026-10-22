@@ -900,10 +900,14 @@ Public Class FormMain
         Logger.Info($"[SNAP] ApplySnapGeometry: zone='{zone}' devRect=({rL},{rT},{rW},{rH}) scale=({s.X},{s.Y}) repin={scrPassed} preserveSize={preserveSize}")
         Me.Left = rL / s.X
         Me.Top = rT / s.Y
-        'preserveSize=True（切回重钉且用户手动调过宽高）时只重钉位置(Left/Top)，保留当前手动宽高，避免把窗口拉回分屏标准尺寸
+        'preserveSize=True（切回重钉且用户手动调过宽高）：只重钉位置(Left/Top)并保留手动宽高；
+        '但若当前宽高小于分屏区域（系统/显示变化把窗口缩小，致右/下边出现空隙），则复位到分屏标准尺寸以消隙。
         If Not preserveSize Then
             Me.Width = rW / s.X
             Me.Height = rH / s.Y
+        Else
+            Dim tW = rW / s.X, tH = rH / s.Y
+            If Me.Width < tW OrElse Me.Height < tH Then Me.Width = tW : Me.Height = tH
         End If
         Logger.Info($"[SNAP] ApplySnapGeometry set: L={Me.Left} T={Me.Top} W={Me.Width} H={Me.Height} MinW={Me.MinWidth} preserveSize={preserveSize}")
     End Sub
