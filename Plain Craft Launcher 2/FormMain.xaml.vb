@@ -365,6 +365,16 @@ Public Class FormMain
         Resizer.addResizerRightDown(ResizerRB)
         Resizer.addResizerRightUp(ResizerRT)
         Resizer.addResizerUp(ResizerT)
+        '分屏(B)态 BorderForm.Margin=0 会盖住 resizers（XAML 中 BorderForm 声明在 resizers 之后、默认绘制于上层），
+        '导致分屏时边缘拖条点不到、无法调边框。把 8 个 resizers 提到 BorderForm 之上，分屏/自由态边缘均可拖拽改大小。
+        System.Windows.Controls.Panel.SetZIndex(ResizerT, 1)
+        System.Windows.Controls.Panel.SetZIndex(ResizerB, 1)
+        System.Windows.Controls.Panel.SetZIndex(ResizerL, 1)
+        System.Windows.Controls.Panel.SetZIndex(ResizerR, 1)
+        System.Windows.Controls.Panel.SetZIndex(ResizerLT, 1)
+        System.Windows.Controls.Panel.SetZIndex(ResizerLB, 1)
+        System.Windows.Controls.Panel.SetZIndex(ResizerRT, 1)
+        System.Windows.Controls.Panel.SetZIndex(ResizerRB, 1)
         'PLC 彩蛋
         If RandomInteger(1, 1000) = 233 Then
             ShapeTitleLogo.Data = New GeometryConverter().ConvertFromString("M26,29 v-25 h6 a7,7 180 0 1 0,14 h-6 M83,6.5 a10,11.5 180 1 0 0,18 M48,2.5 v24.5 h13.5")
