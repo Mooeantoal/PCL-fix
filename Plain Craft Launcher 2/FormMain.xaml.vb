@@ -793,24 +793,16 @@ Public Class FormMain
         Return ""
     End Function
 
-    '直接用设备像素定位窗口（绕过 WPF 的 DPI 换算，避免多屏/瞬态下贴边错位或溢出裁切）
-    <DllImport("user32.dll", SetLastError:=True)>
-    Private Shared Function SetWindowPos(hWnd As IntPtr, hWndInsertAfter As IntPtr, X As Integer, Y As Integer, cx As Integer, cy As Integer, uFlags As UInteger) As Boolean
-    End Function
-    Private Const SWP_NOZORDER As UInteger = &H4UI
-    Private Const SWP_NOACTIVATE As UInteger = &H10UI
-    Private Const SWP_FRAMECHANGED As UInteger = &H20UI
-
     '把窗口几何吸附到指定分屏区域。
-    '坐标空间：**全程只用设备像素**，用 SetWindowPos 直接定位，不回写 WPF 的 Left/Top/Width/Height。
-    '原因：WPF 这四个属性在 PerMonitorV2 下是"相对虚拟屏原点的 DIP"，跨不同 DPI 的屏幕时语义本身不可靠；
-    '手工回写等于引入"目标屏 DPI ↔ WPF 内部 DPI 上下文"两套换算，跨 DPI 时必然错位（表现为大空隙/越界裁切）。
-    '实测：外部 SetWindowPos 之后 WPF 会自行把 Left/Top/Width/Height 同步为该矩形的 DIP 值，
-    '      因此回写是多余的第二次换算，删掉即可消除错位来源。
-    '同时使用光标所在屏（与 DetectSnapZone 一致），避免窗口自身屏与光标屏不一致导致跨屏吸附错位/裁切。
+    '直接写 WPF 的 Left/Top/Width/Height——与拖拽跟随（FormDragMove_Move 里 Me.Left/Top）同一机制，
+    'WPF 自己换算 DPI 并维护自身缓存，不存在"hwnd 被 SetWindowPos 摆好、但 WPF 缓存仍是陈旧值、随后被回弹"的问题。
+    '（之前用纯 SetWindowPos 直写 hwnd 不回写缓存，_Up 里 RestoreMinSize 在 WPF 异步回写前就按陈旧缓存重新应用，
+    ' 把窗口拉回拖拽前尺寸——陈旧尺寸小于吸附目标即出现四边间隙、大于即溢出，正是"时而有时而没有"的根因。）
+    '吸附期间先把 MinWidth/MinHeight 临时归零：ResizeMode=CanMinimize 会让 WPF 在 WM_GETMINMAXINFO 把 ptMinTrackSize
+    '钳成"当前窗口尺寸"导致缩小被卡；WM_GETMINMAXINFO 已把 ptMinTrackSize 设成 Me.MinWidth（=0）换算后的设备像素，故完全不钳制。
+    '_Up 结束时由 RestoreMinSize 按实际尺寸安全恢复最小尺寸（1/4 分屏不会被 400 撑大）。
     Private Sub ApplySnapGeometry(zone As String)
-        Dim hwnd = New System.Windows.Interop.WindowInteropHelper(Me).Handle
-        If hwnd = IntPtr.Zero Then Return
+        On Error Resume Next
         If WindowState = WindowState.Maximized Then WindowState = WindowState.Normal
         '放开最小尺寸：WPF 的 MinWidth 钳制发生在属性层，会把刚贴好边的窗口强行撑大，越过分区边界。
         '这里先归零，_Up 结束时再按实际尺寸安全恢复（见 RestoreMinSize）。
@@ -830,8 +822,12 @@ Public Class FormMain
             Case "BottomRight" : rL = L + W \ 2 : rT = T + H \ 2 : rW = W \ 2 : rH = H \ 2
             Case Else : Return
         End Select
-        'WM_GETMINMAXINFO 已把 ptMaxTrackSize 放宽到虚拟屏，跨屏吸附不会被钳；设备像素定位不受 DPI 换算影响
-        SetWindowPos(hwnd, IntPtr.Zero, rL, rT, rW, rH, SWP_NOZORDER Or SWP_NOACTIVATE Or SWP_FRAMECHANGED)
+        'device → DIP 用目标屏 DPI（单屏下即窗口当前 DPI）；直接写 WPF 属性，WPF 自行落位并维护缓存
+        Dim s = GetScreenScale(New System.Windows.Point(rL + rW / 2, rT + rH / 2))
+        Me.Left = rL / s.X
+        Me.Top = rT / s.Y
+        Me.Width = rW / s.X
+        Me.Height = rH / s.Y
     End Sub
 
     '恢复常规最小尺寸（400/300）。必须取"不超过当前窗口实际尺寸"的值：
@@ -901,9 +897,7 @@ Public Class FormMain
     Private Sub ShowSnapPreview(zone As String)
         EnsureSnapPreview()
         If Not _snapPreview.IsVisible Then _snapPreview.Show()
-        Dim phwnd = New System.Windows.Interop.WindowInteropHelper(_snapPreview).Handle
-        If phwnd = IntPtr.Zero Then Return
-        '用光标所在屏（与 DetectSnapZone/ApplySnapGeometry 一致），避免副屏吸附预览错位
+        '用光标所在屏（与 DetectSnapZone/ApplySnapGeometry 一致）
         Dim cur = GetCursorPixel()
         Dim scr = System.Windows.Forms.Screen.FromPoint(New System.Drawing.Point(CInt(cur.X), CInt(cur.Y)))
         If scr Is Nothing Then Return
@@ -919,12 +913,13 @@ Public Class FormMain
             Case "BottomLeft" : rT = T + H \ 2 : rW = W \ 2 : rH = H \ 2
             Case "BottomRight": rL = L + W \ 2 : rT = T + H \ 2 : rW = W \ 2 : rH = H \ 2
         End Select
-        SetWindowPos(phwnd, IntPtr.Zero, rL, rT, rW, rH, SWP_NOZORDER Or SWP_NOACTIVATE Or SWP_FRAMECHANGED)
-        '不要再回写 _snapPreview 的 Left/Top/Width/Height：
-        '1) 外部 SetWindowPos 之后 WPF 会自动把属性同步为该矩形的 DIP 值，回写属于多余；
-        '2) 更关键的是回写用的是"目标屏 DPI 换算出的 DIP"，而 WPF 的 Left/Top 是相对虚拟屏原点的
-        '    系统 DPI 坐标空间，两者不是同一个坐标系——回写等于做了一次双重换算，
-        '    跨屏或不同 DPI 时会把预览框推到错误位置（与主窗口贴边错位是同一类根因）。
+        '直接写 WPF 属性（与 ApplySnapGeometry 一致）：WPF 自行换算 DPI 并维护缓存，避免 SetWindowPos 直写 hwnd 后
+        'WPF 缓存陈旧导致预览框被回弹到错误位置
+        Dim s = GetScreenScale(New System.Windows.Point(rL + rW / 2, rT + rH / 2))
+        _snapPreview.Left = rL / s.X
+        _snapPreview.Top = rT / s.Y
+        _snapPreview.Width = rW / s.X
+        _snapPreview.Height = rH / s.Y
     End Sub
     Private Sub HideSnapPreview()
         If _snapPreview IsNot Nothing AndAlso _snapPreview.IsVisible Then _snapPreview.Hide()
