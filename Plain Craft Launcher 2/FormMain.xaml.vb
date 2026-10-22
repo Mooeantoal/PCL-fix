@@ -655,6 +655,7 @@ Public Class FormMain
     Private _preSnapRect As New Rect(0, 0, 0, 0) '进入分屏前的自定义几何，拖出取消分屏时恢复尺寸（而非 1/4/1/2 屏大小）
     Private _snapPreview As System.Windows.Window = Nothing '实时吸附预览框（半透明矩形）
     Private _snapPreviewZone As String = "" '预览框当前显示的区域，用于区域切换时补间动画（避免每帧重播）
+    Private _snapCurrentZone As String = "" '当前分屏(B)区域，供切回窗口时重新钉边（_snapZone 在 _Up 末尾被清空，故单独保存）
 
     Private Sub FormDragMove(sender As Object, e As MouseButtonEventArgs) Handles PanTitle.MouseLeftButtonDown, PanMsg.MouseLeftButtonDown
         On Error Resume Next
@@ -719,6 +720,7 @@ Public Class FormMain
             Logger.Info($"[SNAP] Up: zone='{_snapZone}' reDetect='{zoneNow}' WS={WindowState} L={Me.Left} T={Me.Top} W={Me.Width} H={Me.Height}")
             If _snapZone = "Top" Then
                 WindowState = WindowState.Maximized '接触上边缘 → 最大化
+                _snapCurrentZone = "" '最大化不是分屏区域，清掉以免切回时误重钉
                 RestoreMinSize()
                 '注意：此处不把 _isSnapped 清零。若窗口本就处于分屏(B)态，最大化→还原→再分屏这条链需保留原始自定义尺寸，
                 '否则再分屏会(false→)把 _preSnapRect 覆盖成分屏尺寸(如 768x824)，导致其后拖出恢复成"分屏大小"而非"自定义大小"。
@@ -732,12 +734,14 @@ Public Class FormMain
                 RestoreMinSize()
                 _snapActive = False
                 _isSnapped = True
+                _snapCurrentZone = _snapZone '记录当前分屏区域，供切回窗口时重新钉边
                 Logger.Info($"[SNAP] snapped: L={Me.Left} T={Me.Top} W={Me.Width} H={Me.Height} BF={BorderForm.Margin} PB={PanBack.Margin}")
                 '延迟复核：捕获 WPF 异步回写/StateChanged 造成的回弹
                 Dispatcher.BeginInvoke(Sub() Logger.Info($"[SNAP] post: L={Me.Left} T={Me.Top} W={Me.Width} H={Me.Height} BF={BorderForm.Margin} PB={PanBack.Margin} WS={WindowState}"))
             Else
                 ApplyWindowChrome(False) '落到中间恢复圆角/阴影
                 _isSnapped = False
+                _snapCurrentZone = "" '拖出取消分屏，清掉区域记录
                 '拖出取消分屏：恢复进入分屏前的自定义尺寸（而非停留在 1/4/1/2 屏大小）
                 If _preSnapRect.Width > 0 Then
                     Me.Width = _preSnapRect.Width
@@ -854,20 +858,25 @@ Public Class FormMain
     '吸附期间先把 MinWidth/MinHeight 临时归零：ResizeMode=CanMinimize 会让 WPF 在 WM_GETMINMAXINFO 把 ptMinTrackSize
     '钳成"当前窗口尺寸"导致缩小被卡；WM_GETMINMAXINFO 已把 ptMinTrackSize 设成 Me.MinWidth（=0）换算后的设备像素，故完全不钳制。
     '_Up 结束时由 RestoreMinSize 按实际尺寸安全恢复最小尺寸（1/4 分屏不会被 400 撑大）。
-    Private Sub ApplySnapGeometry(zone As String)
+    'scr 可传入：拖动吸附时不传（按光标所在屏判定）；切回窗口重钉时传入（按窗口当前所在屏，避免光标在别处钉错屏）
+    Private Sub ApplySnapGeometry(zone As String, Optional scr As System.Windows.Forms.Screen = Nothing)
         On Error Resume Next
         If WindowState = WindowState.Maximized Then WindowState = WindowState.Normal
         '放开最小尺寸：WPF 的 MinWidth 钳制发生在属性层，会把刚贴好边的窗口强行撑大，越过分区边界。
         '这里先归零，_Up 结束时再按实际尺寸安全恢复（见 RestoreMinSize）。
         Me.MinWidth = 0 : Me.MinHeight = 0
         Dim cur = GetCursorPixel()
-        Dim scr = System.Windows.Forms.Screen.FromPoint(New System.Drawing.Point(CInt(cur.X), CInt(cur.Y)))
+        Dim scrPassed = scr IsNot Nothing
+        If scr Is Nothing Then
+            scr = System.Windows.Forms.Screen.FromPoint(New System.Drawing.Point(CInt(cur.X), CInt(cur.Y)))
+        End If
         If scr Is Nothing Then
             Logger.Info($"[SNAP] ApplySnapGeometry: scr Is Nothing，放弃定位 zone='{zone}'")
             Return
         End If
         Dim wa = scr.WorkingArea '设备像素
-        Dim L = wa.Left, T = wa.Top, W = wa.Width, H = wa.Height
+        '目标设备矩形取整（消除亚像素缝）：WorkingArea 本就整数，这里再显式转整数确保
+        Dim L = CInt(wa.Left), T = CInt(wa.Top), W = CInt(wa.Width), H = CInt(wa.Height)
         Dim rL As Integer, rT As Integer, rW As Integer, rH As Integer
         Select Case zone
             Case "Left"        : rL = L : rT = T : rW = W \ 2 : rH = H
@@ -878,9 +887,16 @@ Public Class FormMain
             Case "BottomRight" : rL = L + W \ 2 : rT = T + H \ 2 : rW = W \ 2 : rH = H \ 2
             Case Else : Return
         End Select
-        'device → DIP 用目标屏 DPI（单屏下即窗口当前 DPI）；直接写 WPF 属性，WPF 自行落位并维护缓存
-        Dim s = GetScreenScale(New System.Windows.Point(rL + rW / 2, rT + rH / 2))
-        Logger.Info($"[SNAP] ApplySnapGeometry: zone='{zone}' devRect=({rL},{rT},{rW},{rH}) scale=({s.X},{s.Y}) curDev=({cur.X},{cur.Y})")
+        'device → DIP 换算取 DPI：
+        ' 拖动吸附(scrPassed=False，可能跨屏)用目标屏 GetScreenScale（跨屏 DPI 正确，沿用原有机制）；
+        ' 切回重钉(scrPassed=True，窗口已落在该屏)用窗口实际 DpiScale()，与 WPF 落位尺度完全一致，消除亚像素缝。
+        Dim s As System.Windows.Point
+        If scrPassed Then
+            s = DpiScale()
+        Else
+            s = GetScreenScale(New System.Windows.Point(rL + rW / 2, rT + rH / 2))
+        End If
+        Logger.Info($"[SNAP] ApplySnapGeometry: zone='{zone}' devRect=({rL},{rT},{rW},{rH}) scale=({s.X},{s.Y}) repin={scrPassed}")
         Me.Left = rL / s.X
         Me.Top = rT / s.Y
         Me.Width = rW / s.X
@@ -1248,6 +1264,20 @@ End Sub
         Catch ex As Exception
             Logger.Error(ex, "切回窗口时出错")
         End Try
+        '分屏(B)态切回窗口：重新钉死到屏边，消除"切走再切回"产生的空隙（几何重算 + 应对显示配置变化）
+        If _isSnapped AndAlso _snapCurrentZone <> "" AndAlso WindowState <> WindowState.Maximized Then
+            Try
+                Dim hwnd = New System.Windows.Interop.WindowInteropHelper(Me).Handle
+                Dim scr = System.Windows.Forms.Screen.FromHandle(hwnd)
+                If scr IsNot Nothing Then
+                    ApplySnapGeometry(_snapCurrentZone, scr)
+                    RestoreMinSize()
+                    Logger.Info($"[SNAP] Activated 重新钉边: zone='{_snapCurrentZone}' L={Me.Left} T={Me.Top} W={Me.Width} H={Me.Height}")
+                End If
+            Catch ex As Exception
+                Logger.Error(ex, "[SNAP] Activated 重新钉边异常")
+            End Try
+        End If
         '读取剪贴板，自动加入联机房间
         Return 'TODO: 联机复活赛
         If PageLinkMain.LinkState <> PageLinkMain.LinkStates.Waiting Then Return '已启动联机
