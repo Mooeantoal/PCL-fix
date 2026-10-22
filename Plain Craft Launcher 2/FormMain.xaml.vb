@@ -712,8 +712,8 @@ Public Class FormMain
                 RestoreMinSize()
             ElseIf _snapZone <> "" Then
                 _snapActive = True
+                ApplyWindowChrome(True) '先切到 B 模式（边距0/直角）：否则下面 ApplySnapGeometry 放大窗口时仍是 A 模式边距，会闪出"满屏却留 8px 边距/圆角"的空隙（A→B 过渡帧）
                 ApplySnapGeometry(_snapZone) '左右 1/2 / 四角 1/4 分屏
-                ApplyWindowChrome(True) '去圆角/阴影，但 WindowState 仍为 Normal（最大化按钮保持窗口形态）
                 '分屏态的安全恢复：不能直接写死 400/300，否则 1/4 分屏会被 WPF 的 MinWidth 钳制撑大、越过分区中线
                 RestoreMinSize()
                 _snapActive = False
