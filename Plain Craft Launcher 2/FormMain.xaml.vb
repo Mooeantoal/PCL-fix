@@ -984,11 +984,11 @@ Public Class FormMain
         Dim rL As Integer, rT As Integer, rW As Integer, rH As Integer
         Select Case zone
             Case "Top"        : rL = L : rT = T : rW = W : rH = H
-            Case "Left"       : rW = W \ 2
-            Case "Right"      : rL = L + W \ 2 : rW = W \ 2
-            Case "TopLeft"    : rW = W \ 2 : rH = H \ 2
-            Case "TopRight"   : rL = L + W \ 2 : rW = W \ 2 : rH = H \ 2
-            Case "BottomLeft" : rT = T + H \ 2 : rW = W \ 2 : rH = H \ 2
+            Case "Left"       : rL = L : rT = T : rW = W \ 2 : rH = H
+            Case "Right"      : rL = L + W \ 2 : rT = T : rW = W \ 2 : rH = H
+            Case "TopLeft"    : rL = L : rT = T : rW = W \ 2 : rH = H \ 2
+            Case "TopRight"   : rL = L + W \ 2 : rT = T : rW = W \ 2 : rH = H \ 2
+            Case "BottomLeft" : rL = L : rT = T + H \ 2 : rW = W \ 2 : rH = H \ 2
             Case "BottomRight": rL = L + W \ 2 : rT = T + H \ 2 : rW = W \ 2 : rH = H \ 2
         End Select
         'device → DIP 用目标屏 DPI（单屏下即窗口当前 DPI）；直接写 WPF 属性（与 ApplySnapGeometry 一致）
