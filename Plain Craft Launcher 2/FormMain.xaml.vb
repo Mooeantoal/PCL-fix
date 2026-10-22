@@ -641,6 +641,8 @@ Public Class FormMain
     Private _dragScreenStart As System.Windows.Point = New System.Windows.Point(0, 0) '拖拽起点（屏幕像素）
     Private _snapZone As String = ""
     Private _snapActive As Boolean = False '吸附过程中置位，防止异步 StateChanged 把 ApplyWindowChrome 切回带边距状态
+    Private _isSnapped As Boolean = False '当前是否处于分屏(B)模式：B→B 连续分屏时不覆盖 _preSnapRect
+    Private _preSnapRect As New Rect(0, 0, 0, 0) '进入分屏前的自定义几何，拖出取消分屏时恢复尺寸（而非 1/4/1/2 屏大小）
     Private _snapPreview As System.Windows.Window = Nothing '实时吸附预览框（半透明矩形）
 
     Private Sub FormDragMove(sender As Object, e As MouseButtonEventArgs) Handles PanTitle.MouseLeftButtonDown, PanMsg.MouseLeftButtonDown
@@ -710,18 +712,28 @@ Public Class FormMain
             If _snapZone = "Top" Then
                 WindowState = WindowState.Maximized '接触上边缘 → 最大化
                 RestoreMinSize()
+                _isSnapped = False
             ElseIf _snapZone <> "" Then
                 _snapActive = True
+                '记住进入分屏前的自定义尺寸：仅来自自由窗口时记录（B→B 连续分屏不清空），拖出取消分屏时恢复该自定义尺寸而非 1/4/1/2 屏大小
+                If Not _isSnapped Then _preSnapRect = New Rect(Me.Left, Me.Top, Me.Width, Me.Height)
                 ApplyWindowChrome(True) '先切到 B 模式（边距0/直角）：否则下面 ApplySnapGeometry 放大窗口时仍是 A 模式边距，会闪出"满屏却留 8px 边距/圆角"的空隙（A→B 过渡帧）
                 ApplySnapGeometry(_snapZone) '左右 1/2 / 四角 1/4 分屏
                 '分屏态的安全恢复：不能直接写死 400/300，否则 1/4 分屏会被 WPF 的 MinWidth 钳制撑大、越过分区中线
                 RestoreMinSize()
                 _snapActive = False
+                _isSnapped = True
                 Logger.Info($"[SNAP] snapped: L={Me.Left} T={Me.Top} W={Me.Width} H={Me.Height} BF={BorderForm.Margin} PB={PanBack.Margin}")
                 '延迟复核：捕获 WPF 异步回写/StateChanged 造成的回弹
                 Dispatcher.BeginInvoke(Sub() Logger.Info($"[SNAP] post: L={Me.Left} T={Me.Top} W={Me.Width} H={Me.Height} BF={BorderForm.Margin} PB={PanBack.Margin} WS={WindowState}"))
             Else
                 ApplyWindowChrome(False) '落到中间恢复圆角/阴影
+                _isSnapped = False
+                '拖出取消分屏：恢复进入分屏前的自定义尺寸（而非停留在 1/4/1/2 屏大小）
+                If _preSnapRect.Width > 0 Then
+                    Me.Width = _preSnapRect.Width
+                    Me.Height = _preSnapRect.Height
+                End If
                 RestoreMinSize()
                 Logger.Info($"[SNAP] middle: L={Me.Left} T={Me.Top} W={Me.Width} H={Me.Height} BF={BorderForm.Margin} PB={PanBack.Margin}")
             End If
