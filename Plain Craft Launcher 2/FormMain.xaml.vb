@@ -690,38 +690,41 @@ Public Class FormMain
     End Sub
 
     Private Sub FormDragMove_Up(sender As Object, e As MouseButtonEventArgs) Handles PanTitle.MouseLeftButtonUp, PanMsg.MouseLeftButtonUp
-        On Error Resume Next
-        If Not _dragging Then Return
-        _dragging = False
-        If TypeOf sender Is UIElement Then CType(sender, UIElement).ReleaseMouseCapture()
-        If Not _dragMoved Then Return
-        '松手瞬间用当前光标重新判定吸附区：拖动中窗口在阈值内会冻结，但最后一条 MouseMove 可能恰好落在 6px 阈值外
-        '（_snapZone 被清空），直接据此判定会漏吸附、落到 Else 分支（ApplyWindowChrome(False) 带 8/10 边距且不定位）
-        '→ 四边均匀内缩。松手重新判定可消除该漏判。
-        Dim zoneNow = DetectSnapZone(GetCursorPixel())
-        If _snapZone = "" Then _snapZone = zoneNow
-        Logger.Info($"[SNAP] Up: zone='{_snapZone}' reDetect='{zoneNow}' WS={WindowState} L={Me.Left} T={Me.Top} W={Me.Width} H={Me.Height}")
-        If _snapZone = "Top" Then
-            WindowState = WindowState.Maximized '接触上边缘 → 最大化
-            RestoreMinSize()
-        ElseIf _snapZone <> "" Then
-            _snapActive = True
-            ApplySnapGeometry(_snapZone) '左右 1/2 / 四角 1/4 分屏
-            ApplyWindowChrome(True) '去圆角/阴影，但 WindowState 仍为 Normal（最大化按钮保持窗口形态）
-            '分屏态的安全恢复：不能直接写死 400/300，否则 1/4 分屏会被 WPF 的 MinWidth 钳制撑大、越过分区中线
-            RestoreMinSize()
-            _snapActive = False
-            Logger.Info($"[SNAP] snapped: L={Me.Left} T={Me.Top} W={Me.Width} H={Me.Height} BF={BorderForm.Margin} PB={PanBack.Margin}")
-            '延迟复核：捕获 WPF 异步回写/StateChanged 造成的回弹
-            Dispatcher.BeginInvoke(Sub() Logger.Info($"[SNAP] post: L={Me.Left} T={Me.Top} W={Me.Width} H={Me.Height} BF={BorderForm.Margin} PB={PanBack.Margin} WS={WindowState}"))
-        Else
-            ApplyWindowChrome(False) '落到中间恢复圆角/阴影
-            RestoreMinSize()
-            Logger.Info($"[SNAP] middle: L={Me.Left} T={Me.Top} W={Me.Width} H={Me.Height} BF={BorderForm.Margin} PB={PanBack.Margin}")
-        End If
-        HideSnapPreview()
-        _snapZone = ""
-        _dragMoved = False
+        Try
+            If Not _dragging Then Return
+            _dragging = False
+            If TypeOf sender Is UIElement Then CType(sender, UIElement).ReleaseMouseCapture()
+            If Not _dragMoved Then Return
+            '松手瞬间用当前光标重新判定吸附区：拖动中窗口在阈值内会冻结，但最后一条 MouseMove 可能恰好落在 6px 阈值外
+            '（_snapZone 被清空），直接据此判定会漏吸附、落到 Else 分支（ApplyWindowChrome(False) 带 8/10 边距且不定位）
+            '→ 四边均匀内缩。松手重新判定可消除该漏判。
+            Dim zoneNow = DetectSnapZone(GetCursorPixel())
+            If _snapZone = "" Then _snapZone = zoneNow
+            Logger.Info($"[SNAP] Up: zone='{_snapZone}' reDetect='{zoneNow}' WS={WindowState} L={Me.Left} T={Me.Top} W={Me.Width} H={Me.Height}")
+            If _snapZone = "Top" Then
+                WindowState = WindowState.Maximized '接触上边缘 → 最大化
+                RestoreMinSize()
+            ElseIf _snapZone <> "" Then
+                _snapActive = True
+                ApplySnapGeometry(_snapZone) '左右 1/2 / 四角 1/4 分屏
+                ApplyWindowChrome(True) '去圆角/阴影，但 WindowState 仍为 Normal（最大化按钮保持窗口形态）
+                '分屏态的安全恢复：不能直接写死 400/300，否则 1/4 分屏会被 WPF 的 MinWidth 钳制撑大、越过分区中线
+                RestoreMinSize()
+                _snapActive = False
+                Logger.Info($"[SNAP] snapped: L={Me.Left} T={Me.Top} W={Me.Width} H={Me.Height} BF={BorderForm.Margin} PB={PanBack.Margin}")
+                '延迟复核：捕获 WPF 异步回写/StateChanged 造成的回弹
+                Dispatcher.BeginInvoke(Sub() Logger.Info($"[SNAP] post: L={Me.Left} T={Me.Top} W={Me.Width} H={Me.Height} BF={BorderForm.Margin} PB={PanBack.Margin} WS={WindowState}"))
+            Else
+                ApplyWindowChrome(False) '落到中间恢复圆角/阴影
+                RestoreMinSize()
+                Logger.Info($"[SNAP] middle: L={Me.Left} T={Me.Top} W={Me.Width} H={Me.Height} BF={BorderForm.Margin} PB={PanBack.Margin}")
+            End If
+            HideSnapPreview()
+            _snapZone = ""
+            _dragMoved = False
+        Catch ex As Exception
+            Logger.Error(ex, "[SNAP] Up 异常")
+        End Try
     End Sub
 
     '改变大小
