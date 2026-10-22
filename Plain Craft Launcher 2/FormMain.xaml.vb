@@ -935,6 +935,13 @@ Public Class FormMain
     End Function
     Private Const MONITOR_DEFAULTTONEAREST As UInteger = 2UI
     Private Const MDT_EFFECTIVE_DPI As Integer = 0
+    <DllImport("user32.dll")>
+    Private Shared Function SetWindowPos(hWnd As IntPtr, hWndInsertAfter As IntPtr, X As Integer, Y As Integer, cx As Integer, cy As Integer, uFlags As UInteger) As Boolean
+    End Function
+    Private Const SWP_NOZORDER As UInteger = &H4UI
+    Private Const SWP_NOACTIVATE As UInteger = &H10UI
+    Private Const SWP_SHOWWINDOW As UInteger = &H40UI
+    Private Const SWP_ASYNCWINDOWPOS As UInteger = &H4000UI
 
     '取某屏幕（设备像素点）的有效 DPI 缩放（device/WPF）。必须用目标显示器自身 DPI，
     '不能改用窗口当前 DpiScale()：跨屏且 DPI 不同时窗口当前 DPI 仍是旧屏的，用它换算会把窗口摆到错误设备坐标。
@@ -980,7 +987,7 @@ Public Class FormMain
         Dim scr = System.Windows.Forms.Screen.FromPoint(New System.Drawing.Point(CInt(cur.X), CInt(cur.Y)))
         If scr Is Nothing Then Return
         Dim wa = scr.WorkingArea '设备像素
-        Dim L = wa.Left, T = wa.Top, W = wa.Width, H = wa.Height
+        Dim L = CInt(wa.Left), T = CInt(wa.Top), W = CInt(wa.Width), H = CInt(wa.Height)
         Dim rL As Integer, rT As Integer, rW As Integer, rH As Integer
         Select Case zone
             Case "Top"        : rL = L : rT = T : rW = W : rH = H
@@ -991,25 +998,18 @@ Public Class FormMain
             Case "BottomLeft" : rL = L : rT = T + H \ 2 : rW = W \ 2 : rH = H \ 2
             Case "BottomRight": rL = L + W \ 2 : rT = T + H \ 2 : rW = W \ 2 : rH = H \ 2
         End Select
-        'device → DIP 用目标屏 DPI（单屏下即窗口当前 DPI）；直接写 WPF 属性（与 ApplySnapGeometry 一致）
+        '直接用设备像素 SetWindowPos 落位：绕开 WPF 按预览窗“自身 DPI 上下文”换算 Left/Top 的环节，
+        '避免跨屏/不同缩放下预览窗被摆到错误坐标（表现为“预览跑到左上角/错位”，即“有时候还是会这样”的根因）。
+        '同时仍写 WPF 的 Width/Height/Left/Top（DIP）以保持布局缓存与窗口尺寸一致，避免被布局回弹。
+        If Not _snapPreview.IsVisible Then _snapPreview.Show()
         Dim s = GetScreenScale(New System.Windows.Point(rL + rW / 2, rT + rH / 2))
-        Dim tL = rL / s.X, tT = rT / s.Y, tW = rW / s.X, tH = rH / s.Y
-        '首次显示：直接定位再 Show，避免从 (0,0) 飞入
-        If Not _snapPreview.IsVisible Then
-            _snapPreview.Left = tL : _snapPreview.Top = tT : _snapPreview.Width = tW : _snapPreview.Height = tH
-            _snapPreview.Show()
-            _snapPreviewZone = zone
-            Return
+        _snapPreview.Width = rW / s.X : _snapPreview.Height = rH / s.Y
+        _snapPreview.Left = rL / s.X : _snapPreview.Top = rT / s.Y
+        Dim hwnd = New System.Windows.Interop.WindowInteropHelper(_snapPreview).Handle
+        If hwnd <> IntPtr.Zero Then
+            SetWindowPos(hwnd, IntPtr.Zero, rL, rT, rW, rH, SWP_NOZORDER Or SWP_NOACTIVATE Or SWP_SHOWWINDOW Or SWP_ASYNCWINDOWPOS)
         End If
-        If zone = _snapPreviewZone Then Return '同一区域无需重播动画
         _snapPreviewZone = zone
-        '区域切换（全屏/1/2/1/4）平滑过渡动画
-        Dim dur = TimeSpan.FromMilliseconds(140)
-        Dim ease = New System.Windows.Media.Animation.CubicEase() With {.EasingMode = System.Windows.Media.Animation.EasingMode.EaseOut}
-        _snapPreview.BeginAnimation(Window.LeftProperty, New System.Windows.Media.Animation.DoubleAnimation(tL, dur) With {.EasingFunction = ease})
-        _snapPreview.BeginAnimation(Window.TopProperty, New System.Windows.Media.Animation.DoubleAnimation(tT, dur) With {.EasingFunction = ease})
-        _snapPreview.BeginAnimation(Window.WidthProperty, New System.Windows.Media.Animation.DoubleAnimation(tW, dur) With {.EasingFunction = ease})
-        _snapPreview.BeginAnimation(Window.HeightProperty, New System.Windows.Media.Animation.DoubleAnimation(tH, dur) With {.EasingFunction = ease})
     End Sub
     Private Sub HideSnapPreview()
         _snapPreviewZone = ""
