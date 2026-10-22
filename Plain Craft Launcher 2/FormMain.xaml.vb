@@ -644,6 +644,7 @@ Public Class FormMain
     Private _isSnapped As Boolean = False '当前是否处于分屏(B)模式：B→B 连续分屏时不覆盖 _preSnapRect
     Private _preSnapRect As New Rect(0, 0, 0, 0) '进入分屏前的自定义几何，拖出取消分屏时恢复尺寸（而非 1/4/1/2 屏大小）
     Private _snapPreview As System.Windows.Window = Nothing '实时吸附预览框（半透明矩形）
+    Private _snapPreviewZone As String = "" '预览框当前显示的区域，用于区域切换时补间动画（避免每帧重播）
 
     Private Sub FormDragMove(sender As Object, e As MouseButtonEventArgs) Handles PanTitle.MouseLeftButtonDown, PanMsg.MouseLeftButtonDown
         On Error Resume Next
@@ -682,17 +683,14 @@ Public Class FormMain
             _dragMoved = True
             If WindowState = WindowState.Maximized Then WindowState = WindowState.Normal '最大化态拖拽先还原（模拟 Windows 行为）
         End If
-        '光标判定吸附区（DetectSnapZone 用光标位置）：触区则冻结，离开区则解冻恢复跟随
+        '光标判定吸附区（DetectSnapZone 用光标位置）：预览框跟随当前光标所在区（边/角），
+        '窗口在吸附区内冻结（停在屏边、不拖出屏外），离开吸附区则解冻恢复跟随光标
         Dim zone = DetectSnapZone(cur)
-        If _snapZone <> "" AndAlso zone = "" Then _snapZone = "" '此前冻结、现已离开吸附区：解冻
-        If _snapZone = "" Then
-            If zone <> "" Then
-                _snapZone = zone '进入吸附区：冻结（不更新 Left/Top），等待松开吸附
-            Else
-                Dim s = DpiScale()
-                Left = cur.X / s.X - _dragOffset.X
-                Top = cur.Y / s.Y - _dragOffset.Y
-            End If
+        _snapZone = zone
+        If zone = "" Then
+            Dim s = DpiScale()
+            Left = cur.X / s.X - _dragOffset.X
+            Top = cur.Y / s.Y - _dragOffset.Y
         End If
         If _snapZone = "" Then HideSnapPreview() Else ShowSnapPreview(_snapZone)
     End Sub
@@ -942,7 +940,6 @@ Public Class FormMain
     End Sub
     Private Sub ShowSnapPreview(zone As String)
         EnsureSnapPreview()
-        If Not _snapPreview.IsVisible Then _snapPreview.Show()
         '用光标所在屏（与 DetectSnapZone/ApplySnapGeometry 一致）
         Dim cur = GetCursorPixel()
         Dim scr = System.Windows.Forms.Screen.FromPoint(New System.Drawing.Point(CInt(cur.X), CInt(cur.Y)))
@@ -959,15 +956,28 @@ Public Class FormMain
             Case "BottomLeft" : rT = T + H \ 2 : rW = W \ 2 : rH = H \ 2
             Case "BottomRight": rL = L + W \ 2 : rT = T + H \ 2 : rW = W \ 2 : rH = H \ 2
         End Select
-        '直接写 WPF 属性（与 ApplySnapGeometry 一致）：WPF 自行换算 DPI 并维护缓存，避免 SetWindowPos 直写 hwnd 后
-        'WPF 缓存陈旧导致预览框被回弹到错误位置
+        'device → DIP 用目标屏 DPI（单屏下即窗口当前 DPI）；直接写 WPF 属性（与 ApplySnapGeometry 一致）
         Dim s = GetScreenScale(New System.Windows.Point(rL + rW / 2, rT + rH / 2))
-        _snapPreview.Left = rL / s.X
-        _snapPreview.Top = rT / s.Y
-        _snapPreview.Width = rW / s.X
-        _snapPreview.Height = rH / s.Y
+        Dim tL = rL / s.X, tT = rT / s.Y, tW = rW / s.X, tH = rH / s.Y
+        '首次显示：直接定位再 Show，避免从 (0,0) 飞入
+        If Not _snapPreview.IsVisible Then
+            _snapPreview.Left = tL : _snapPreview.Top = tT : _snapPreview.Width = tW : _snapPreview.Height = tH
+            _snapPreview.Show()
+            _snapPreviewZone = zone
+            Return
+        End If
+        If zone = _snapPreviewZone Then Return '同一区域无需重播动画
+        _snapPreviewZone = zone
+        '区域切换（全屏/1/2/1/4）平滑过渡动画
+        Dim dur = TimeSpan.FromMilliseconds(140)
+        Dim ease = New System.Windows.Media.Animation.CubicEase() With {.EasingMode = System.Windows.Media.Animation.EasingMode.EaseOut}
+        _snapPreview.BeginAnimation(Window.LeftProperty, New System.Windows.Media.Animation.DoubleAnimation(tL, dur) With {.EasingFunction = ease})
+        _snapPreview.BeginAnimation(Window.TopProperty, New System.Windows.Media.Animation.DoubleAnimation(tT, dur) With {.EasingFunction = ease})
+        _snapPreview.BeginAnimation(Window.WidthProperty, New System.Windows.Media.Animation.DoubleAnimation(tW, dur) With {.EasingFunction = ease})
+        _snapPreview.BeginAnimation(Window.HeightProperty, New System.Windows.Media.Animation.DoubleAnimation(tH, dur) With {.EasingFunction = ease})
     End Sub
     Private Sub HideSnapPreview()
+        _snapPreviewZone = ""
         If _snapPreview IsNot Nothing AndAlso _snapPreview.IsVisible Then _snapPreview.Hide()
     End Sub
 
