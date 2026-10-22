@@ -713,8 +713,7 @@ Public Class FormMain
             _snapActive = False
             Logger.Info($"[SNAP] snapped: L={Me.Left} T={Me.Top} W={Me.Width} H={Me.Height} BF={BorderForm.Margin} PB={PanBack.Margin}")
             '延迟复核：捕获 WPF 异步回写/StateChanged 造成的回弹
-            Dim ws = WindowState
-            Dispatcher.BeginInvoke(Sub() Logger.Info($"[SNAP] post: L={Me.Left} T={Me.Top} W={Me.Width} H={Me.Height} BF={BorderForm.Margin} PB={PanBack.Margin} WS={ws}"))
+            Dispatcher.BeginInvoke(Sub() Logger.Info($"[SNAP] post: L={Me.Left} T={Me.Top} W={Me.Width} H={Me.Height} BF={BorderForm.Margin} PB={PanBack.Margin} WS={WindowState}"))
         Else
             ApplyWindowChrome(False) '落到中间恢复圆角/阴影
             RestoreMinSize()
