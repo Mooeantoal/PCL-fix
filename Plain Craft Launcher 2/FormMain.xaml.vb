@@ -720,7 +720,8 @@ Public Class FormMain
             If _snapZone = "Top" Then
                 WindowState = WindowState.Maximized '接触上边缘 → 最大化
                 RestoreMinSize()
-                _isSnapped = False
+                '注意：此处不把 _isSnapped 清零。若窗口本就处于分屏(B)态，最大化→还原→再分屏这条链需保留原始自定义尺寸，
+                '否则再分屏会(false→)把 _preSnapRect 覆盖成分屏尺寸(如 768x824)，导致其后拖出恢复成"分屏大小"而非"自定义大小"。
             ElseIf _snapZone <> "" Then
                 _snapActive = True
                 '记住进入分屏前的自定义尺寸：仅来自自由窗口时记录（B→B 连续分屏不清空），拖出取消分屏时恢复该自定义尺寸而非 1/4/1/2 屏大小
