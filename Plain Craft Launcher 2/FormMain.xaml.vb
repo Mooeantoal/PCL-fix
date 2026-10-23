@@ -345,7 +345,6 @@ Public Class FormMain
         ApplicationStartTick = GetTimeMs()
         Handle = New WindowInteropHelper(Me).Handle
         '显示配置(分辨率/DPI)变化监听：即使窗口未失焦也立即重钉分屏窗，消除空隙/溢出
-        AddHandler Microsoft.Win32.SystemEvents.DisplaySettingsChanged, AddressOf Snap_OnDisplaySettingsChanged
         '读取设置
         UpdateBackgroundAndTitleBar()
         PageSetupUI.HiddenRefresh()
@@ -357,30 +356,6 @@ Public Class FormMain
         BtnExtraApril.ShowCheck = AddressOf BtnExtraApril_ShowCheck
         BtnExtraShutdown.ShowCheck = AddressOf BtnExtraShutdown_ShowCheck
         BtnExtraApril.ShowRefresh()
-        '初始化尺寸改变
-        Dim Resizer As New MyResizer(Me)
-        Resizer.addResizerDown(ResizerB)
-        Resizer.addResizerLeft(ResizerL)
-        Resizer.addResizerLeftDown(ResizerLB)
-        Resizer.addResizerLeftUp(ResizerLT)
-        Resizer.addResizerRight(ResizerR)
-        Resizer.addResizerRightDown(ResizerRB)
-        Resizer.addResizerRightUp(ResizerRT)
-        Resizer.addResizerUp(ResizerT)
-        '分屏(B)态 BorderForm.Margin=0 会盖住 resizers（XAML 中 BorderForm 声明在 resizers 之后、默认绘制于上层），
-        '导致分屏时边缘拖条点不到、无法调边框。把 8 个 resizers 提到 BorderForm 之上，分屏/自由态边缘均可拖拽改大小。
-        System.Windows.Controls.Panel.SetZIndex(ResizerT, 1)
-        System.Windows.Controls.Panel.SetZIndex(ResizerB, 1)
-        System.Windows.Controls.Panel.SetZIndex(ResizerL, 1)
-        System.Windows.Controls.Panel.SetZIndex(ResizerR, 1)
-        System.Windows.Controls.Panel.SetZIndex(ResizerLT, 1)
-        System.Windows.Controls.Panel.SetZIndex(ResizerLB, 1)
-        System.Windows.Controls.Panel.SetZIndex(ResizerRT, 1)
-        System.Windows.Controls.Panel.SetZIndex(ResizerRB, 1)
-        '去掉 8 条 resize 热区的半透明渐变（提到内容上层后会在边缘叠出“内缩阴影框”）；Fill=Transparent 仍可命中拖拽
-        For Each rz As System.Windows.Shapes.Rectangle In {ResizerT, ResizerB, ResizerL, ResizerR, ResizerLT, ResizerLB, ResizerRT, ResizerRB}
-            rz.Fill = System.Windows.Media.Brushes.Transparent
-        Next
         'PLC 彩蛋
         If RandomInteger(1, 1000) = 233 Then
             ShapeTitleLogo.Data = New GeometryConverter().ConvertFromString("M26,29 v-25 h6 a7,7 180 0 1 0,14 h-6 M83,6.5 a10,11.5 180 1 0 0,18 M48,2.5 v24.5 h13.5")
@@ -650,130 +625,9 @@ Public Class FormMain
         EndProgram(True)
     End Sub
 
-    '移动（自定义拖拽 + Aero Snap；单击不还原，双击由 PanTitle_DoubleClick 处理）
-    Private _dragging As Boolean = False
-    Private _dragMoved As Boolean = False
-    Private _dragOffset As System.Windows.Point = New System.Windows.Point(0, 0) '光标相对窗口左上角的偏移（WPF 单位）
-    Private _dragScreenStart As System.Windows.Point = New System.Windows.Point(0, 0) '拖拽起点（屏幕像素）
-    Private _snapZone As String = ""
-    Private _snapActive As Boolean = False '吸附过程中置位，防止异步 StateChanged 把 ApplyWindowChrome 切回带边距状态
-    Private _isSnapped As Boolean = False '当前是否处于分屏(B)模式：B→B 连续分屏时不覆盖 _preSnapRect
-    Private _preSnapRect As New Rect(0, 0, 0, 0) '进入分屏前的自定义几何，拖出取消分屏时恢复尺寸（而非 1/4/1/2 屏大小）
-    Private _snapPreview As System.Windows.Window = Nothing '实时吸附预览框（半透明矩形）
-    Private _snapPreviewZone As String = "" '预览框当前显示的区域，用于区域切换时补间动画（避免每帧重播）
-    Private _snapCurrentZone As String = "" '当前分屏(B)区域，供切回窗口时重新钉边（_snapZone 在 _Up 末尾被清空，故单独保存）
-    '预览窗补间动画：在设备像素层面做插值，每帧 SetWindowPos 落位（绕开 WPF DPI 上下文换算）
-    Private _snapAnimX As Double = 0, _snapAnimY As Double = 0, _snapAnimW As Double = 0, _snapAnimH As Double = 0 '当前设备像素位形
-    Private _snapAnimFromX As Double = 0, _snapAnimFromY As Double = 0, _snapAnimFromW As Double = 0, _snapAnimFromH As Double = 0
-    Private _snapAnimToX As Double = 0, _snapAnimToY As Double = 0, _snapAnimToW As Double = 0, _snapAnimToH As Double = 0
-    Private _snapAnimStart As Date = Nothing
-    Private _snapAnimTimer As System.Windows.Threading.DispatcherTimer = Nothing
-    Private Const SNAP_ANIM_MS As Integer = 140
-    '切走时快照：用于区分“用户手动改尺寸”与“系统/显示变化改尺寸”。离开时记录窗口 DIP 尺寸与所在屏工作区，
-    '切回时若尺寸与屏工作区都未变 → 保留手动尺寸（含 1/4 拖角二维改尺寸）；否则复位到分屏标准尺寸消隙。
-    Private _snapDeactW As Double = -1, _snapDeactH As Double = -1
-    Private _snapDeactSW As Integer = -1, _snapDeactSH As Integer = -1
 
-    Private Sub FormDragMove(sender As Object, e As MouseButtonEventArgs) Handles PanTitle.MouseLeftButtonDown, PanMsg.MouseLeftButtonDown
-        On Error Resume Next
-        If e.ClickCount = 2 Then Return '双击交给 PanTitle_DoubleClick 处理最大化/还原
-        If Not sender.IsMouseDirectlyOver Then Return '点在子按钮上不拖拽
-        _dragging = True
-        _dragMoved = False
-        _snapZone = ""
-        Dim cur = GetCursorPixel()
-        Dim s = DpiScale()
-        Dim curWpf = New System.Windows.Point(cur.X / s.X, cur.Y / s.Y)
-        Dim off As System.Windows.Point
-        If WindowState = WindowState.Maximized Then
-            '最大化态拖出：以窗口左上角(Me.Left/Top，与 Window.Left 同单位)算光标相对偏移，
-            '并钳制到还原窗口范围内，避免窗口瞬间缩小导致鼠标跑到标题栏外、窗口严重瞬移/偏移。
-            '注意：不能用 PointToScreen，其在部分 DPI 下尺度与 Window.Left 不一致。
-            off = New System.Windows.Point(curWpf.X - Me.Left, curWpf.Y - Me.Top)
-            Dim rb = Me.RestoreBounds
-            off.X = Math.Max(0, Math.Min(off.X, Math.Max(1, rb.Width - 1)))
-            off.Y = Math.Max(0, Math.Min(off.Y, Math.Max(1, PanTitle.ActualHeight)))
-        Else
-            '窗口态：光标相对窗口左上角（WPF 单位），与 move 中 cur/s - offset 完全自洽（沿用原可正常工作算法）
-            off = e.GetPosition(Me)
-        End If
-        _dragOffset = off
-        _dragScreenStart = cur
-        If TypeOf sender Is UIElement Then CType(sender, UIElement).CaptureMouse()
-    End Sub
 
-    Private Sub FormDragMove_Move(sender As Object, e As MouseEventArgs) Handles PanTitle.MouseMove, PanMsg.MouseMove
-        On Error Resume Next
-        If Not _dragging OrElse System.Windows.Input.Mouse.LeftButton <> System.Windows.Input.MouseButtonState.Pressed Then Return
-        Dim cur = GetCursorPixel()
-        If Not _dragMoved Then
-            If Math.Abs(cur.X - _dragScreenStart.X) < 4 AndAlso Math.Abs(cur.Y - _dragScreenStart.Y) < 4 Then Return
-            _dragMoved = True
-            If WindowState = WindowState.Maximized Then WindowState = WindowState.Normal '最大化态拖拽先还原（模拟 Windows 行为）
-        End If
-        '光标判定吸附区（DetectSnapZone 用光标位置）：预览框跟随当前光标所在区（边/角），
-        '窗口在吸附区内冻结（停在屏边、不拖出屏外），离开吸附区则解冻恢复跟随光标
-        Dim zone = DetectSnapZone(cur)
-        _snapZone = zone
-        If zone = "" Then
-            Dim s = DpiScale()
-            Left = cur.X / s.X - _dragOffset.X
-            Top = cur.Y / s.Y - _dragOffset.Y
-        End If
-        If _snapZone = "" Then HideSnapPreview() Else ShowSnapPreview(_snapZone)
-    End Sub
 
-    Private Sub FormDragMove_Up(sender As Object, e As MouseButtonEventArgs) Handles PanTitle.MouseLeftButtonUp, PanMsg.MouseLeftButtonUp
-        Try
-            If Not _dragging Then Return
-            _dragging = False
-            If TypeOf sender Is UIElement Then CType(sender, UIElement).ReleaseMouseCapture()
-            If Not _dragMoved Then Return
-            '松手瞬间用当前光标重新判定吸附区：拖动中窗口在阈值内会冻结，但最后一条 MouseMove 可能恰好落在 16px 阈值外
-            '（_snapZone 被清空），直接据此判定会漏吸附、落到 Else 分支（ApplyWindowChrome(False) 带 8/10 边距且不定位）
-            '→ 四边均匀内缩。松手重新判定可消除该漏判。
-            Dim zoneNow = DetectSnapZone(GetCursorPixel())
-            If zoneNow <> "" Then _snapZone = zoneNow '以松手瞬间判定的区域为准（角优先于半屏）：修"拖动中先冻结成半屏、其后拖到角、松手却仍落半屏"的瑕疵
-            Logger.Info($"[SNAP] Up: zone='{_snapZone}' reDetect='{zoneNow}' WS={WindowState} L={Me.Left} T={Me.Top} W={Me.Width} H={Me.Height}")
-            If _snapZone = "Top" Then
-                WindowState = WindowState.Maximized '接触上边缘 → 最大化
-                _snapCurrentZone = "" '最大化不是分屏区域，清掉以免切回时误重钉
-                RestoreMinSize()
-                '注意：此处不把 _isSnapped 清零。若窗口本就处于分屏(B)态，最大化→还原→再分屏这条链需保留原始自定义尺寸，
-                '否则再分屏会(false→)把 _preSnapRect 覆盖成分屏尺寸(如 768x824)，导致其后拖出恢复成"分屏大小"而非"自定义大小"。
-            ElseIf _snapZone <> "" Then
-                _snapActive = True
-                '记住进入分屏前的自定义尺寸：仅来自自由窗口时记录（B→B 连续分屏不清空），拖出取消分屏时恢复该自定义尺寸而非 1/4/1/2 屏大小
-                If Not _isSnapped Then _preSnapRect = New Rect(Me.Left, Me.Top, Me.Width, Me.Height)
-                ApplyWindowChrome(True) '先切到 B 模式（边距0/直角）：否则下面 ApplySnapGeometry 放大窗口时仍是 A 模式边距，会闪出"满屏却留 8px 边距/圆角"的空隙（A→B 过渡帧）
-                ApplySnapGeometry(_snapZone) '左右 1/2 / 四角 1/4 分屏
-                '分屏态的安全恢复：不能直接写死 400/300，否则 1/4 分屏会被 WPF 的 MinWidth 钳制撑大、越过分区中线
-                RestoreMinSize()
-                _snapActive = False
-                _isSnapped = True
-                _snapCurrentZone = _snapZone '记录当前分屏区域，供切回窗口时重新钉边
-                Logger.Info($"[SNAP] snapped: L={Me.Left} T={Me.Top} W={Me.Width} H={Me.Height} BF={BorderForm.Margin} PB={PanBack.Margin}")
-                '延迟复核：捕获 WPF 异步回写/StateChanged 造成的回弹
-                Dispatcher.BeginInvoke(Sub() Logger.Info($"[SNAP] post: L={Me.Left} T={Me.Top} W={Me.Width} H={Me.Height} BF={BorderForm.Margin} PB={PanBack.Margin} WS={WindowState}"))
-            Else
-                ApplyWindowChrome(False) '落到中间恢复圆角/阴影
-                _isSnapped = False
-                _snapCurrentZone = "" '拖出取消分屏，清掉区域记录
-                '拖出取消分屏：恢复进入分屏前的自定义尺寸（而非停留在 1/4/1/2 屏大小）
-                If _preSnapRect.Width > 0 Then
-                    Me.Width = _preSnapRect.Width
-                    Me.Height = _preSnapRect.Height
-                End If
-                RestoreMinSize()
-                Logger.Info($"[SNAP] middle: L={Me.Left} T={Me.Top} W={Me.Width} H={Me.Height} BF={BorderForm.Margin} PB={PanBack.Margin}")
-            End If
-            HideSnapPreview()
-            _snapZone = ""
-            _dragMoved = False
-        Catch ex As Exception
-            Logger.Error(ex, "[SNAP] Up 异常")
-        End Try
-    End Sub
 
     '改变大小
     ''' <summary>
@@ -802,22 +656,17 @@ Public Class FormMain
         WindowState = If(WindowState = WindowState.Maximized, WindowState.Normal, WindowState.Maximized)
     End Sub
 
-    Private Sub PanTitle_DoubleClick(sender As Object, e As MouseButtonEventArgs) Handles PanTitle.MouseLeftButtonDown
-        '双击标题栏最大化/还原（排除右侧按钮区域）
-        If e.ClickCount = 2 Then
-            Dim pos = e.GetPosition(PanTitle)
-            If pos.X < PanTitle.ActualWidth - 90 Then
-                WindowState = If(WindowState = WindowState.Maximized, WindowState.Normal, WindowState.Maximized)
-            End If
-        End If
+    'PanMsg 覆盖整窗时（Visible），用原生 DragMove 让系统接管拖动与 Aero Snap（替代原来自研拖拽）
+    Private Sub PanMsg_Drag(sender As Object, e As MouseButtonEventArgs) Handles PanMsg.MouseLeftButtonDown
+        If Not PanMsg.IsMouseDirectlyOver Then Return
+        Me.DragMove()
     End Sub
+
 
     '窗口状态变化：最大化时去圆角/边距/缩放条，否则恢复
     Private Sub FormMain_StateChanged(sender As Object, e As EventArgs) Handles Me.StateChanged
         Dim isMax = (WindowState = WindowState.Maximized)
-        '吸附过程（_Up 内）中置位的保护：即便有异步 StateChanged，也保持去边距（margin 0），不被切回带边距状态
-        If _snapActive Then isMax = True
-        Logger.Info($"[SNAP] StateChanged: isMax={isMax} snapActive={_snapActive} WS={WindowState}")
+        Logger.Info($"[WIN] StateChanged: isMax={isMax} WS={WindowState}")
         ApplyWindowChrome(isMax)
         '无论最大化还是还原都要恢复最小尺寸：
         '若在还原时无条件写死 400/300，会把 1/4 分屏（实测 480x257 设备像素）撑成 500x375，破坏贴边几何。
@@ -825,146 +674,21 @@ Public Class FormMain
         RestoreMinSize()
     End Sub
 
-    '统一设置窗口装饰（圆角/边距/缩放条/最大化按钮图标）
+    '统一设置窗口装饰（圆角/边距/标题栏可拖拽区/最大化按钮图标）。
+    '原生缩放边与拖动/吸附由 WindowChrome 接管，不再自管 Resizer/分屏。
     Private Sub ApplyWindowChrome(maximized As Boolean)
-        Logger.Info($"[SNAP] ApplyWindowChrome: maximized={maximized} -> BF={If(maximized, 0, 8)} PB={If(maximized, 0, 10)}")
         RectForm.RadiusX = If(maximized, 0, 6)
         RectForm.RadiusY = If(maximized, 0, 6)
         PanBack.Margin = If(maximized, New Thickness(0), New Thickness(10))
         BorderForm.Margin = If(maximized, New Thickness(0), New Thickness(8))
-        '仅"真正最大化"时隐藏缩放条；分屏(B 模式，WindowState 仍为 Normal)与自由窗口都保留缩放条，允许拖边改大小（#2）
-        SetResizersVisibility(WindowState <> WindowState.Maximized)
+        'CaptionHeight 须与可见标题栏高度一致：正常态标题栏前有 PanBack.Margin=10 的透明留白，故 10+48=58；
+        '最大化态留白为 0，故 48。否则拖拽热区会偏移、点不到标题栏。
+        Dim chrome = System.Windows.Shell.WindowChrome.GetWindowChrome(Me)
+        If chrome IsNot Nothing Then chrome.CaptionHeight = If(maximized, 48, 58)
         BtnTitleMax.Logo = If(WindowState = WindowState.Maximized, "F1 M6,2 h13 v13 h-3 M6,2 v3 M3,5 h13 v13 h-13 Z", "F1 M2,2 h16 v16 h-16 Z")
     End Sub
 
-    'Aero Snap 区域检测：判定光标是否进入屏幕物理边缘/角（阈值 16px 设备像素）。
-    '用光标位置判边（而非窗口边）：拖动标题栏时光标相对窗口有偏移，若按窗口边判定，
-    '抓住已分屏窗口时窗口本就在屏边会立刻重新冻结、拖不出去（#1 拖出回不到 A 模式）；
-    '且预览应跟随鼠标（#3）。这与 Windows 原生 Aero Snap 一致——鼠标碰边即吸附，与窗口实际位置无关。
-    '注意：触发看的是"光标是否碰到显示器物理边缘"（scr.Bounds），吸附目标才是工作区（scr.WorkingArea，ApplySnapGeometry 用），
-    '底部有任务栏时光标压到屏幕最下沿会判成 Bottom*，但吸附后矩形高度按工作区对半（不伸进任务栏），与系统行为一致。
-    Private Function DetectSnapZone(cur As System.Windows.Point) As String
-        Dim scr = System.Windows.Forms.Screen.FromPoint(New System.Drawing.Point(CInt(cur.X), CInt(cur.Y)))
-        If scr Is Nothing Then Return ""
-        Dim b = scr.Bounds '全屏物理边缘（设备像素）
-        'cur 已是设备像素（System.Windows.Forms.Cursor.Position 返回物理屏幕坐标），与 Screen.Bounds 同坐标系，无需再乘 DPI；
-        '原 cx = cur.X * sc.X 会重复换算，导致 125% DPI 下左右触发区不对称（右侧触发区偏大、左侧偏小）。
-        Dim cx = cur.X, cy = cur.Y '光标设备像素，与 Screen.Bounds 同坐标系
-        Dim thr = 16 '阈值（设备像素），光标进入此范围即判定吸附
-        Dim inLeft = cx <= b.Left + thr
-        Dim inRight = cx >= b.Right - thr
-        Dim inTop = cy <= b.Top + thr
-        Dim inBottom = cy >= b.Bottom - thr
-        If inTop AndAlso inLeft Then Return "TopLeft"
-        If inTop AndAlso inRight Then Return "TopRight"
-        If inBottom AndAlso inLeft Then Return "BottomLeft"
-        If inBottom AndAlso inRight Then Return "BottomRight"
-        If inTop Then Return "Top"
-        If inLeft Then Return "Left"
-        If inRight Then Return "Right"
-        Return ""
-    End Function
 
-    '把窗口几何吸附到指定分屏区域。
-    '直接写 WPF 的 Left/Top/Width/Height——与拖拽跟随（FormDragMove_Move 里 Me.Left/Top）同一机制，
-    'WPF 自己换算 DPI 并维护自身缓存，不存在"hwnd 被 SetWindowPos 摆好、但 WPF 缓存仍是陈旧值、随后被回弹"的问题。
-    '（之前用纯 SetWindowPos 直写 hwnd 不回写缓存，_Up 里 RestoreMinSize 在 WPF 异步回写前就按陈旧缓存重新应用，
-    ' 把窗口拉回拖拽前尺寸——陈旧尺寸小于吸附目标即出现四边间隙、大于即溢出，正是"时而有时而没有"的根因。）
-    '吸附期间先把 MinWidth/MinHeight 临时归零：ResizeMode=CanMinimize 会让 WPF 在 WM_GETMINMAXINFO 把 ptMinTrackSize
-    '钳成"当前窗口尺寸"导致缩小被卡；WM_GETMINMAXINFO 已把 ptMinTrackSize 设成 Me.MinWidth（=0）换算后的设备像素，故完全不钳制。
-    '_Up 结束时由 RestoreMinSize 按实际尺寸安全恢复最小尺寸（1/4 分屏不会被 400 撑大）。
-    'scr 可传入：拖动吸附时不传（按光标所在屏判定）；切回窗口重钉时传入（按窗口当前所在屏，避免光标在别处钉错屏）
-    Private Sub ApplySnapGeometry(zone As String, Optional scr As System.Windows.Forms.Screen = Nothing, Optional preserveSize As Boolean = False)
-        On Error Resume Next
-        If WindowState = WindowState.Maximized Then WindowState = WindowState.Normal
-        '放开最小尺寸：WPF 的 MinWidth 钳制发生在属性层，会把刚贴好边的窗口强行撑大，越过分区边界。
-        '这里先归零，_Up 结束时再按实际尺寸安全恢复（见 RestoreMinSize）。
-        Me.MinWidth = 0 : Me.MinHeight = 0
-        Dim cur = GetCursorPixel()
-        Dim scrPassed = scr IsNot Nothing
-        If scr Is Nothing Then
-            scr = System.Windows.Forms.Screen.FromPoint(New System.Drawing.Point(CInt(cur.X), CInt(cur.Y)))
-        End If
-        If scr Is Nothing Then
-            Logger.Info($"[SNAP] ApplySnapGeometry: scr Is Nothing，放弃定位 zone='{zone}'")
-            Return
-        End If
-        Dim wa = scr.WorkingArea '设备像素
-        '目标设备矩形取整（消除亚像素缝）：WorkingArea 本就整数，这里再显式转整数确保
-        Dim L = CInt(wa.Left), T = CInt(wa.Top), W = CInt(wa.Width), H = CInt(wa.Height)
-        Dim rL As Integer, rT As Integer, rW As Integer, rH As Integer
-        Select Case zone
-            Case "Left"        : rL = L : rT = T : rW = W \ 2 : rH = H
-            Case "Right"       : rL = L + W \ 2 : rT = T : rW = W \ 2 : rH = H
-            Case "TopLeft"     : rL = L : rT = T : rW = W \ 2 : rH = H \ 2
-            Case "TopRight"    : rL = L + W \ 2 : rT = T : rW = W \ 2 : rH = H \ 2
-            Case "BottomLeft"  : rL = L : rT = T + H \ 2 : rW = W \ 2 : rH = H \ 2
-            Case "BottomRight" : rL = L + W \ 2 : rT = T + H \ 2 : rW = W \ 2 : rH = H \ 2
-            Case Else : Return
-        End Select
-        'device → DIP 换算取 DPI：
-        ' 拖动吸附(scrPassed=False，可能跨屏)用目标屏 GetScreenScale（跨屏 DPI 正确，沿用原有机制）；
-        ' 切回重钉(scrPassed=True，窗口已落在该屏)用窗口实际 DpiScale()，与 WPF 落位尺度完全一致，消除亚像素缝。
-        Dim s As System.Windows.Point
-        If scrPassed Then
-            s = DpiScale()
-        Else
-            s = GetScreenScale(New System.Windows.Point(rL + rW / 2, rT + rH / 2))
-        End If
-        Logger.Info($"[SNAP] ApplySnapGeometry: zone='{zone}' devRect=({rL},{rT},{rW},{rH}) scale=({s.X},{s.Y}) repin={scrPassed} preserveSize={preserveSize}")
-        '计算落位尺寸（设备像素）：
-        ' 非 preserve（拖动吸附）→ 用分屏标准尺寸；
-        ' preserve（切回重钉）→ 默认保留手动尺寸，仅当“离开时快照”与当前不符（被系统/显示变化改过，或屏工作区变了）才复位。
-        Dim curW As Double, curH As Double
-        If Not preserveSize Then
-            curW = rW : curH = rH
-        Else
-            curW = Me.Width * s.X : curH = Me.Height * s.Y
-            Dim tW = rW / s.X, tH = rH / s.Y
-            Dim fitChanged As Boolean
-            If _snapDeactW < 0 Then
-                '无快照：回退到“两维同时缩小才复位”（手动拖一条边只变一维，保留）
-                fitChanged = (Me.Width < tW - 1 AndAlso Me.Height < tH - 1)
-            Else
-                '尺寸被改(系统缩小) 或 所在屏工作区变化(分辨率/DPI) → 复位消隙；
-                '否则（含 1/4 拖角二维改尺寸，两条屏幕锚边仍贴屏）保留手动尺寸。
-                fitChanged = (Math.Abs(Me.Width - _snapDeactW) > 2) OrElse (Math.Abs(Me.Height - _snapDeactH) > 2) _
-                             OrElse (_snapDeactSW > 0 AndAlso Math.Abs(W - _snapDeactSW) > 2) OrElse (_snapDeactSH > 0 AndAlso Math.Abs(H - _snapDeactSH) > 2)
-            End If
-            If fitChanged Then curW = rW : curH = rH
-            '夹紧到工作区：手动放大后若仍按内部边钉位会导致对侧越出屏幕，故限制在屏内
-            curW = Math.Min(curW, W) : curH = Math.Min(curH, H)
-        End If
-        '按吸附区“贴屏边”锚定落位：屏幕锚边贴屏，内部边按尺寸自由延伸（手动放大即保留在屏内，不会溢出）
-        Dim anchorLeft As Boolean, anchorRight As Boolean, anchorTop As Boolean, anchorBottom As Boolean
-        Select Case zone
-            Case "Top"        : anchorLeft = True : anchorRight = True : anchorTop = True : anchorBottom = True
-            Case "Left"       : anchorLeft = True : anchorRight = False : anchorTop = True : anchorBottom = True
-            Case "Right"      : anchorLeft = False : anchorRight = True : anchorTop = True : anchorBottom = True
-            Case "TopLeft"    : anchorLeft = True : anchorRight = False : anchorTop = True : anchorBottom = False
-            Case "TopRight"   : anchorLeft = False : anchorRight = True : anchorTop = True : anchorBottom = False
-            Case "BottomLeft" : anchorLeft = True : anchorRight = False : anchorTop = False : anchorBottom = True
-            Case "BottomRight": anchorLeft = False : anchorRight = True : anchorTop = False : anchorBottom = True
-        End Select
-        Dim x As Double, y As Double
-        If anchorLeft AndAlso anchorRight Then
-            x = L : curW = W
-        ElseIf anchorLeft Then
-            x = L
-        Else
-            x = L + W - curW
-        End If
-        If anchorTop AndAlso anchorBottom Then
-            y = T : curH = H
-        ElseIf anchorTop Then
-            y = T
-        Else
-            y = T + H - curH
-        End If
-        Me.Left = x / s.X : Me.Top = y / s.Y
-        Me.Width = curW / s.X : Me.Height = curH / s.Y
-        Logger.Info($"[SNAP] ApplySnapGeometry set: L={Me.Left} T={Me.Top} W={Me.Width} H={Me.Height} MinW={Me.MinWidth} preserveSize={preserveSize}")
-    End Sub
 
     '恢复常规最小尺寸（400/300）。必须取"不超过当前窗口实际尺寸"的值：
     'WPF 的 MinWidth/MinHeight 钳制发生在属性层，若直接设成 400/300，会把 1/4 分屏这类
@@ -1034,107 +758,9 @@ Public Class FormMain
         Return DpiScale()
     End Function
 
-    '实时吸附预览框：拖到边缘冻结时显示半透明矩形，提示将吸附到的区域（模拟 Windows 快照辅助）
-    Private Sub EnsureSnapPreview()
-        If _snapPreview IsNot Nothing Then Return
-        Dim w As New System.Windows.Window()
-        w.WindowStyle = System.Windows.WindowStyle.None
-        w.AllowsTransparency = True
-        w.Background = System.Windows.Media.Brushes.Transparent
-        w.Topmost = True
-        w.ShowInTaskbar = False
-        w.ResizeMode = System.Windows.ResizeMode.NoResize
-        w.ShowActivated = False
-        w.IsHitTestVisible = False
-        w.Opacity = 1 '恢复吸附预览框（蓝色半透明提示）
-        Dim border As New System.Windows.Controls.Border()
-        border.Background = New MyColor(70, 0, 120, 215)
-        border.CornerRadius = New System.Windows.CornerRadius(6)
-        border.BorderThickness = New System.Windows.Thickness(2)
-        border.BorderBrush = New MyColor(200, 0, 120, 215)
-        w.Content = border
-        _snapPreview = w
-    End Sub
-    '把预览窗钉到设备像素矩形(x,y,w,h)：SetWindowPos 精确落位，并同步 WPF 的 Width/Height/Left/Top(DIP) 保持布局缓存一致
-    Private Sub PlaceSnapPreview(hwnd As IntPtr, x As Double, y As Double, w As Double, h As Double)
-        Dim s = GetScreenScale(New System.Windows.Point(x + w / 2, y + h / 2))
-        _snapPreview.Width = w / s.X : _snapPreview.Height = h / s.Y
-        _snapPreview.Left = x / s.X : _snapPreview.Top = y / s.Y
-        SetWindowPos(hwnd, IntPtr.Zero, CInt(x), CInt(y), CInt(w), CInt(h), SWP_NOZORDER Or SWP_NOACTIVATE Or SWP_ASYNCWINDOWPOS)
-    End Sub
 
-    Private Sub ShowSnapPreview(zone As String)
-        EnsureSnapPreview()
-        '用光标所在屏（与 DetectSnapZone/ApplySnapGeometry 一致）
-        Dim cur = GetCursorPixel()
-        Dim scr = System.Windows.Forms.Screen.FromPoint(New System.Drawing.Point(CInt(cur.X), CInt(cur.Y)))
-        If scr Is Nothing Then Return
-        Dim wa = scr.WorkingArea '设备像素
-        Dim L = CInt(wa.Left), T = CInt(wa.Top), W = CInt(wa.Width), H = CInt(wa.Height)
-        Dim rL As Integer, rT As Integer, rW As Integer, rH As Integer
-        Select Case zone
-            Case "Top"        : rL = L : rT = T : rW = W : rH = H
-            Case "Left"       : rL = L : rT = T : rW = W \ 2 : rH = H
-            Case "Right"      : rL = L + W \ 2 : rT = T : rW = W \ 2 : rH = H
-            Case "TopLeft"    : rL = L : rT = T : rW = W \ 2 : rH = H \ 2
-            Case "TopRight"   : rL = L + W \ 2 : rT = T : rW = W \ 2 : rH = H \ 2
-            Case "BottomLeft" : rL = L : rT = T + H \ 2 : rW = W \ 2 : rH = H \ 2
-            Case "BottomRight": rL = L + W \ 2 : rT = T + H \ 2 : rW = W \ 2 : rH = H \ 2
-        End Select
-        '直接用设备像素 SetWindowPos 落位：绕开 WPF 按预览窗“自身 DPI 上下文”换算 Left/Top 的环节，
-        '避免跨屏/不同缩放下预览窗被摆到错误坐标（表现为“预览跑到左上角/错位”，即“有时候还是会这样”的根因）。
-        Dim hwnd = New System.Windows.Interop.WindowInteropHelper(_snapPreview).Handle
-        If hwnd = IntPtr.Zero Then Return
-        '首次显示：直接定位再 Show，不做动画（避免从(0,0)飞入）
-        If Not _snapPreview.IsVisible Then
-            _snapPreview.Show()
-            _snapAnimX = rL : _snapAnimY = rT : _snapAnimW = rW : _snapAnimH = rH
-            PlaceSnapPreview(hwnd, rL, rT, rW, rH)
-            _snapPreviewZone = zone
-            Return
-        End If
-        If zone = _snapPreviewZone Then
-            '同一区域：仍用 SetWindowPos 精确落位（应对跨屏/缩放），无需动画
-            _snapAnimX = rL : _snapAnimY = rT : _snapAnimW = rW : _snapAnimH = rH
-            PlaceSnapPreview(hwnd, rL, rT, rW, rH)
-            Return
-        End If
-        _snapPreviewZone = zone
-        '不同区域：启动设备像素插值动画（DispatcherTimer 每帧 SetWindowPos，绕开 WPF DPI 上下文换算）
-        _snapAnimFromX = _snapAnimX : _snapAnimFromY = _snapAnimY : _snapAnimFromW = _snapAnimW : _snapAnimFromH = _snapAnimH
-        _snapAnimToX = rL : _snapAnimToY = rT : _snapAnimToW = rW : _snapAnimToH = rH
-        _snapAnimStart = Date.Now
-        If _snapAnimTimer Is Nothing Then
-            _snapAnimTimer = New System.Windows.Threading.DispatcherTimer()
-            _snapAnimTimer.Interval = TimeSpan.FromMilliseconds(16)
-            AddHandler _snapAnimTimer.Tick, AddressOf SnapAnimTick
-        End If
-        If Not _snapAnimTimer.IsEnabled Then _snapAnimTimer.Start()
-    End Sub
 
-    '预览窗补间动画：每帧在设备像素层面插值并 SetWindowPos 落位
-    Private Sub SnapAnimTick(sender As Object, e As EventArgs)
-        If _snapPreview Is Nothing OrElse Not _snapPreview.IsVisible OrElse _snapAnimTimer Is Nothing Then
-            If _snapAnimTimer IsNot Nothing Then _snapAnimTimer.Stop()
-            Return
-        End If
-        Dim elapsed = (Date.Now - _snapAnimStart).TotalMilliseconds
-        Dim t = Math.Min(1, elapsed / SNAP_ANIM_MS)
-        Dim k = 1 - Math.Pow(1 - t, 3) 'EaseOutCubic
-        Dim x = _snapAnimFromX + (_snapAnimToX - _snapAnimFromX) * k
-        Dim y = _snapAnimFromY + (_snapAnimToY - _snapAnimFromY) * k
-        Dim w = _snapAnimFromW + (_snapAnimToW - _snapAnimFromW) * k
-        Dim h = _snapAnimFromH + (_snapAnimToH - _snapAnimFromH) * k
-        _snapAnimX = x : _snapAnimY = y : _snapAnimW = w : _snapAnimH = h
-        Dim hwnd = New System.Windows.Interop.WindowInteropHelper(_snapPreview).Handle
-        If hwnd <> IntPtr.Zero Then PlaceSnapPreview(hwnd, x, y, w, h)
-        If t >= 1 Then _snapAnimTimer.Stop()
-    End Sub
-    Private Sub HideSnapPreview()
-        _snapPreviewZone = ""
-        If _snapAnimTimer IsNot Nothing Then _snapAnimTimer.Stop()
-        If _snapPreview IsNot Nothing AndAlso _snapPreview.IsVisible Then _snapPreview.Hide()
-    End Sub
+
 
     '当前窗口 DPI 缩放（设备/布局单位）
     Private Function DpiScale() As System.Windows.Point
@@ -1145,23 +771,7 @@ Public Class FormMain
         Return New System.Windows.Point(1, 1)
     End Function
 
-    '当前鼠标屏幕像素坐标
-    Private Function GetCursorPixel() As System.Windows.Point
-        Dim c = System.Windows.Forms.Cursor.Position
-        Return New System.Windows.Point(c.X, c.Y)
-    End Function
 
-Private Sub SetResizersVisibility(visible As Boolean)
-    Dim v = If(visible, Visibility.Visible, Visibility.Collapsed)
-    ResizerT.Visibility = v
-    ResizerB.Visibility = v
-    ResizerL.Visibility = v
-    ResizerR.Visibility = v
-    ResizerLT.Visibility = v
-    ResizerLB.Visibility = v
-    ResizerRT.Visibility = v
-    ResizerRB.Visibility = v
-End Sub
 
     '背景图片与标题栏
     Public Shared Sub UpdateBackgroundAndTitleBar(Value) '从设置更新
@@ -1388,20 +998,7 @@ End Sub
         Catch ex As Exception
             Logger.Error(ex, "切回窗口时出错")
         End Try
-        '分屏(B)态切回窗口：重新钉死到屏边，消除"切走再切回"产生的空隙（几何重算 + 应对显示配置变化）
-        If _isSnapped AndAlso _snapCurrentZone <> "" AndAlso WindowState <> WindowState.Maximized Then
-            Try
-                Dim hwnd = New System.Windows.Interop.WindowInteropHelper(Me).Handle
-                Dim scr = System.Windows.Forms.Screen.FromHandle(hwnd)
-                If scr IsNot Nothing Then
-                    ApplySnapGeometry(_snapCurrentZone, scr, preserveSize:=True) '只重钉位置，保留手动宽高
-                    RestoreMinSize()
-                    Logger.Info($"[SNAP] Activated 重新钉边: zone='{_snapCurrentZone}' L={Me.Left} T={Me.Top} W={Me.Width} H={Me.Height}")
-                End If
-            Catch ex As Exception
-                Logger.Error(ex, "[SNAP] Activated 重新钉边异常")
-            End Try
-        End If
+
         '读取剪贴板，自动加入联机房间
         Return 'TODO: 联机复活赛
         If PageLinkMain.LinkState <> PageLinkMain.LinkStates.Waiting Then Return '已启动联机
@@ -1421,37 +1018,6 @@ End Sub
         End Sub)
     End Sub
 
-    '切走时快照窗口尺寸与所在屏工作区：用于 FormMain_Activated 重钉时区分“手动改尺寸”与“系统/显示变化改尺寸”
-    Private Sub FormMain_Deactivated() Handles Me.Deactivated
-    If _isSnapped AndAlso _snapCurrentZone <> "" Then
-        Try
-            _snapDeactW = Me.Width : _snapDeactH = Me.Height
-            Dim h = New System.Windows.Interop.WindowInteropHelper(Me).Handle
-            Dim sc = System.Windows.Forms.Screen.FromHandle(h)
-            If sc IsNot Nothing Then _snapDeactSW = sc.WorkingArea.Width : _snapDeactSH = sc.WorkingArea.Height
-        Catch
-        End Try
-    End If
-    End Sub
-
-    '显示配置(分辨率/DPI)变化时，即使窗口未失焦也立即重钉到分屏区域，消除空隙/溢出
-    '（覆盖“切回窗口才检测”覆盖不到的场景：PCL 一直最前台、从未失焦时改了分辨率）
-    Private Sub Snap_OnDisplaySettingsChanged(sender As Object, e As EventArgs)
-        If Not _isSnapped OrElse _snapCurrentZone = "" OrElse WindowState = WindowState.Maximized Then Return
-        Try
-            Dim h = New System.Windows.Interop.WindowInteropHelper(Me).Handle
-            Dim scr = System.Windows.Forms.Screen.FromHandle(h)
-            If scr Is Nothing Then Return
-            'SystemEvents 事件可能在非 UI 线程引发，需回到 UI 线程操作 WPF 属性
-            Me.Dispatcher.Invoke(Sub()
-                ApplySnapGeometry(_snapCurrentZone, scr, preserveSize:=False) '显示变化：直接按新屏标准尺寸重钉，贴合新屏
-                RestoreMinSize()
-                Logger.Info($"[SNAP] DisplaySettingsChanged 重钉: zone='{_snapCurrentZone}' L={Me.Left} T={Me.Top} W={Me.Width} H={Me.Height}")
-            End Sub)
-        Catch ex As Exception
-            Logger.Error(ex, "[SNAP] DisplaySettingsChanged 重钉异常")
-        End Try
-    End Sub
 
     '文件拖放
     Private Sub HandleDrag(sender As Object, e As DragEventArgs)

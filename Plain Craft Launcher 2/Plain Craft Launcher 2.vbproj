@@ -487,7 +487,7 @@
     <Compile Include="Controls\MyRadioBox.xaml.vb">
       <DependentUpon>MyRadioBox.xaml</DependentUpon>
     </Compile>
-    <Compile Include="Controls\MyResizer.vb" />
+
     <Compile Include="Controls\MySlider.xaml.vb">
       <DependentUpon>MySlider.xaml</DependentUpon>
     </Compile>
