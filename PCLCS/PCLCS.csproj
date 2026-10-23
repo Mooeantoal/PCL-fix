@@ -23,6 +23,8 @@
 		<PackageReference Include="SharpZipLib" Version="1.3.3" />
 		<!-- 存档 NBT 解析（level.dat） -->
 		<PackageReference Include="fNbt" Version="1.3.2" />
+		<!-- .NET Framework 4.8 不含 Span/ReadOnlySpan 类型，需显式引用以编译 Port/Hash 等使用 ReadOnlySpan 的文件 -->
+		<PackageReference Include="System.Memory" Version="4.5.5" />
 	</ItemGroup>
 
 	<ItemGroup>
