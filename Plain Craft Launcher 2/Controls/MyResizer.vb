@@ -34,6 +34,7 @@ Public Class MyResizer
     Private startMousePoint As PointAPI = Nothing
     Private startWindowSize As Size = Nothing
     Private startWindowLeftUpPoint As POINT = Nothing
+    Private Shared _resizeDbg As Integer = 0 '诊断用：每次拖拽重置，仅打印前几帧
 
     Public Sub New(target As Window)
         Me.target = target
@@ -99,6 +100,8 @@ Public Class MyResizer
         If rightElements.ContainsKey(key) Then resizeRight = True
         If upElements.ContainsKey(key) Then resizeUp = True
         If downElements.ContainsKey(key) Then resizeDown = True
+        _resizeDbg = 0
+        Logger.Info($"[RESIZE] down key={If(key.Name, "?")} L={resizeLeft} R={resizeRight} U={resizeUp} D={resizeDown} cur=({startMousePoint.X},{startMousePoint.Y}) size=({startWindowSize.Width},{startWindowSize.Height})")
         RunInNewThread(AddressOf updateSizeLoop, "窗口大小调整检测")
     End Sub
 
@@ -118,6 +121,8 @@ Public Class MyResizer
         GetCursorPos(pointAPI)
         pointAPI.X = GetWPFSize(pointAPI.X)
         pointAPI.Y = GetWPFSize(pointAPI.Y)
+        _resizeDbg += 1
+        If _resizeDbg <= 3 Then Logger.Info($"[RESIZE] update#{_resizeDbg} start cur=({pointAPI.X},{pointAPI.Y}) W={target.Width} H={target.Height} MinW={target.MinWidth}")
         Try
 
             Dim NewWidth As Double = -1
@@ -202,6 +207,7 @@ Public Class MyResizer
             If NewHeight > 10 AndAlso Math.Abs(NewHeight - target.Height) > 0.7 Then target.Height = NewHeight
             If NewLeft > -9999 AndAlso Math.Abs(NewLeft - target.Left) > 0.7 Then target.Left = NewLeft
             If NewTop > -9999 AndAlso Math.Abs(NewTop - target.Top) > 0.7 Then target.Top = NewTop
+            If _resizeDbg <= 3 Then Logger.Info($"[RESIZE] update#{_resizeDbg} applied New=({NewWidth},{NewHeight}) -> W={target.Width} H={target.Height} L={target.Left} T={target.Top}")
 
         Catch
         End Try
