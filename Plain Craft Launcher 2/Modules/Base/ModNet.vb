@@ -1859,9 +1859,9 @@ FinishExCatch:
     Public Function FindFreePort() As Integer
         Dim Listener As New TcpListener(IPAddress.Loopback, 0)
         Listener.Start()
-        Dim port As Integer = CType(Listener.LocalEndpoint, IPEndPoint).Port
+        Dim randomPort As Integer = CType(Listener.LocalEndpoint, IPEndPoint).Port
         Listener.Stop()
-        Return port
+        Return randomPort
     End Function
 
     ''' <summary>
@@ -1881,8 +1881,8 @@ FinishExCatch:
     ''' </summary>
     Public Function FindFreePorts(ConsecutiveCount As Integer, ParamArray ExtraBlackLists As Integer()) As List(Of Integer)
         Dim UsedPorts = GetUsedPorts().Concat(ExtraBlackLists)
-        For port = 12000 + RandomInteger(0, 1000) To 65000 - ConsecutiveCount
-            Dim Range = Enumerable.Range(port, ConsecutiveCount)
+        For startPort = 12000 + RandomInteger(0, 1000) To 65000 - ConsecutiveCount
+            Dim Range = Enumerable.Range(startPort, ConsecutiveCount)
             If Not Range.Any(Function(p) UsedPorts.Contains(p)) Then Return Range.ToList
         Next
         Throw New Exception("未能找到可用的端口！")

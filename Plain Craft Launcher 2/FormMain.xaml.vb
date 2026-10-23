@@ -817,17 +817,17 @@ Public Class FormMain
         If enabled Then
             '侧栏背景透明（露出洞口）
             RectLeftBackground.Fill = Nothing
-            '首页页面背景透明（仅 FrmLaunchLeft/Right 受影响，其它页面不变）
-            If FrmLaunchLeft IsNot Nothing Then FrmLaunchLeft.Background = Nothing
-            If FrmLaunchRight IsNot Nothing Then FrmLaunchRight.Background = Nothing
+            '首页主区容器透明（PanMainLeft/Right 为 Border，自带 Background），露出 ImgBack 上的洞口
+            PanMainLeft.Background = Nothing
+            PanMainRight.Background = Nothing
             '拖动/缩放挂起期间不要重开磨砂（由 WM_EXITSIZEMOVE 恢复），否则会再次卡顿
             If Not _acrylicSuspended Then SetWindowAcrylic(GetAcrylicTint())
             UpdateAcrylicMask()
         Else
-            '恢复侧栏与页面背景（ClearValue 回到 XAML/样式默认值）
+            '恢复侧栏与首页容器背景（ClearValue 回到 XAML/样式默认值）
             RectLeftBackground.ClearValue(System.Windows.Shapes.Rectangle.FillProperty)
-            If FrmLaunchLeft IsNot Nothing Then FrmLaunchLeft.ClearValue(System.Windows.Controls.Control.BackgroundProperty)
-            If FrmLaunchRight IsNot Nothing Then FrmLaunchRight.ClearValue(System.Windows.Controls.Control.BackgroundProperty)
+            PanMainLeft.ClearValue(System.Windows.Controls.Border.BackgroundProperty)
+            PanMainRight.ClearValue(System.Windows.Controls.Border.BackgroundProperty)
             SetWindowAcrylic(Nothing)
             ImgBack.OpacityMask = Nothing
         End If
