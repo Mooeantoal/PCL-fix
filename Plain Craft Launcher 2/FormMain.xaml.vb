@@ -640,6 +640,8 @@ Public Class FormMain
     Private RectForm As New System.Windows.Media.RectangleGeometry()
     '1px 细边框相关状态（边框颜色取 DWM 强调色，各版本通用）
     Private _borderBrush As System.Windows.Media.Brush = Nothing
+    '亚克力在拖动/缩放期间被临时挂起（关闭磨砂）以消除卡顿，松手后恢复
+    Private _acrylicSuspended As Boolean = False
     Private _frameInit As Boolean = False
     Private _clipInit As Boolean = False
     Private _clipW As Double = 0, _clipH As Double = 0
@@ -809,7 +811,8 @@ Public Class FormMain
         Dim enabled = Settings.Get(Of Boolean)("UiAcrylic")
         If enabled Then
             PanTitle.Background = Nothing '透明标题栏以透出亚克力
-            SetWindowAcrylic(GetAcrylicTint())
+            '拖动/缩放挂起期间不要重开磨砂（由 WM_EXITSIZEMOVE 恢复），否则会再次卡顿
+            If Not _acrylicSuspended Then SetWindowAcrylic(GetAcrylicTint())
         Else
             If PanTitle.Background IsNot Nothing Then _panTitleThemeBg = PanTitle.Background
             If _panTitleThemeBg IsNot Nothing Then PanTitle.Background = _panTitleThemeBg
@@ -1461,6 +1464,16 @@ Public Class FormMain
             End If
             handled = True
             Return IntPtr.Zero
+        ElseIf msg = &H231 Then ' WM_ENTERSIZEMOVE：开始拖动/缩放，临时关闭亚克力磨砂以消除卡顿（透明窗口+磨砂在移动时每帧重采样桌面，开销极大）
+            If Settings.Get(Of Boolean)("UiAcrylic") Then
+                _acrylicSuspended = True
+                SetWindowAcrylic(Nothing)
+            End If
+        ElseIf msg = &H232 Then ' WM_EXITSIZEMOVE：结束拖动/缩放，恢复亚克力磨砂
+            If _acrylicSuspended Then
+                _acrylicSuspended = False
+                SetWindowAcrylic(GetAcrylicTint())
+            End If
         End If
         Return IntPtr.Zero
     End Function

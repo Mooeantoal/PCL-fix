@@ -19,6 +19,8 @@
 			<PrivateAssets>all</PrivateAssets>
 			<IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
 		</PackageReference>
+		<!-- 二进制差量 BsDiff 的 BZip2 解压依赖 -->
+		<PackageReference Include="SharpZipLib" Version="1.3.3" />
 	</ItemGroup>
 
 	<ItemGroup>
