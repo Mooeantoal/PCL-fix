@@ -21,6 +21,8 @@
 		</PackageReference>
 		<!-- 二进制差量 BsDiff 的 BZip2 解压依赖 -->
 		<PackageReference Include="SharpZipLib" Version="1.3.3" />
+		<!-- 存档 NBT 解析（level.dat） -->
+		<PackageReference Include="fNbt" Version="1.3.2" />
 	</ItemGroup>
 
 	<ItemGroup>
