@@ -679,16 +679,16 @@ Public Class FormMain
     Private Sub ApplyWindowChrome(maximized As Boolean)
         RectForm.RadiusX = If(maximized, 0, 6)
         RectForm.RadiusY = If(maximized, 0, 6)
-        PanBack.Margin = If(maximized, New Thickness(0), New Thickness(10))
-        BorderForm.Margin = If(maximized, New Thickness(0), New Thickness(8))
-        'CaptionHeight 须覆盖完整可见标题栏：正常态标题栏前有 PanBack.Margin(10)+BorderForm.Margin(8)=18 透明留白，
-        '标题高 48，故 18+48=66；最大化态留白为 0、标题顶到窗口顶，故 48。否则拖拽热区偏移、点不到标题栏。
+        '可视内容直接填满真实窗口矩形（不再保留透明留白），故边距恒为 0：
+        '既消除"窗口矩形比内容大一圈"造成的假透明窗口，又让原生缩放边落在实打实的内容边缘上。
+        PanBack.Margin = New Thickness(0)
+        BorderForm.Margin = New Thickness(0)
+        '标题栏即窗口顶部的 48px 内容，故 CaptionHeight 恒为 48（覆盖整个标题栏用于拖拽）。
         Dim chrome = System.Windows.Shell.WindowChrome.GetWindowChrome(Me)
         If chrome IsNot Nothing Then
-            chrome.CaptionHeight = If(maximized, 48, 66)
-            '缩放边厚度须覆盖透明留白(PanBack10+BorderForm8=18)：正常态整圈留白都是原生缩放边；
-            '最大化态留白为 0、且最大化窗口本就不可缩放，故置 0 避免误把内容边缘当缩放边。
-            chrome.ResizeBorderThickness = If(maximized, New Thickness(0), New Thickness(18))
+            chrome.CaptionHeight = 48
+            '缩放边落在内容实边上：正常态取 6px 作为可抓取的原生缩放边；最大化态窗口不可缩放，置 0。
+            chrome.ResizeBorderThickness = If(maximized, New Thickness(0), New Thickness(6))
         End If
         BtnTitleMax.Logo = If(WindowState = WindowState.Maximized, "F1 M6,2 h13 v13 h-3 M6,2 v3 M3,5 h13 v13 h-13 Z", "F1 M2,2 h16 v16 h-16 Z")
     End Sub
