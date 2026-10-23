@@ -644,6 +644,8 @@ Public Class FormMain
         PanForm.Height = BorderForm.ActualHeight + 0.001
         PanMain.Width = PanForm.Width
         PanMain.Height = Math.Max(0, PanForm.Height - PanTitle.ActualHeight)
+        '尺寸变化（含 Aero Snap 吸附到半屏/1/4 屏）时同步刷新圆角：分屏态取消圆角、普通浮动态保留圆角。
+        ApplyWindowChrome()
     End Sub
 
     '最小化
@@ -667,7 +669,7 @@ Public Class FormMain
     Private Sub FormMain_StateChanged(sender As Object, e As EventArgs) Handles Me.StateChanged
         Dim isMax = (WindowState = WindowState.Maximized)
         Logger.Info($"[WIN] StateChanged: isMax={isMax} WS={WindowState}")
-        ApplyWindowChrome(isMax)
+        ApplyWindowChrome()
         '无论最大化还是还原都要恢复最小尺寸：
         '若在还原时无条件写死 400/300，会把 1/4 分屏（实测 480x257 设备像素）撑成 500x375，破坏贴边几何。
         'StateChanged 触发时 Me.Width/Height 已是变化后的实际值，据此安全恢复即可。
@@ -676,9 +678,13 @@ Public Class FormMain
 
     '统一设置窗口装饰（圆角/边距/标题栏可拖拽区/最大化按钮图标）。
     '原生缩放边与拖动/吸附由 WindowChrome 接管，不再自管 Resizer/分屏。
-    Private Sub ApplyWindowChrome(maximized As Boolean)
-        RectForm.RadiusX = If(maximized, 0, 6)
-        RectForm.RadiusY = If(maximized, 0, 6)
+    '圆角规则：最大化或分屏（吸附到半屏/1/4 屏/整工作区）时取消圆角，普通浮动窗口保留 6px 圆角。
+    '缩放边规则：仅最大化态不可缩放（置 0）；分屏态仍保留 6px，以便拖动分屏分隔条调整比例。
+    Private Sub ApplyWindowChrome()
+        Dim isMax = (WindowState = WindowState.Maximized)
+        Dim isTiled = isMax OrElse IsWindowSnapped()
+        RectForm.RadiusX = If(isTiled, 0, 6)
+        RectForm.RadiusY = If(isTiled, 0, 6)
         '可视内容直接填满真实窗口矩形（不再保留透明留白），故边距恒为 0：
         '既消除"窗口矩形比内容大一圈"造成的假透明窗口，又让原生缩放边落在实打实的内容边缘上。
         PanBack.Margin = New Thickness(0)
@@ -687,11 +693,50 @@ Public Class FormMain
         Dim chrome = System.Windows.Shell.WindowChrome.GetWindowChrome(Me)
         If chrome IsNot Nothing Then
             chrome.CaptionHeight = 48
-            '缩放边落在内容实边上：正常态取 6px 作为可抓取的原生缩放边；最大化态窗口不可缩放，置 0。
-            chrome.ResizeBorderThickness = If(maximized, New Thickness(0), New Thickness(6))
+            '缩放边落在内容实边上：正常态/分屏态取 6px；最大化态窗口不可缩放，置 0。
+            chrome.ResizeBorderThickness = If(isMax, New Thickness(0), New Thickness(6))
         End If
-        BtnTitleMax.Logo = If(WindowState = WindowState.Maximized, "F1 M6,2 h13 v13 h-3 M6,2 v3 M3,5 h13 v13 h-13 Z", "F1 M2,2 h16 v16 h-16 Z")
+        BtnTitleMax.Logo = If(isMax, "F1 M6,2 h13 v13 h-3 M6,2 v3 M3,5 h13 v13 h-13 Z", "F1 M2,2 h16 v16 h-16 Z")
     End Sub
+
+    '判断窗口是否处于"贴边分屏/最大化"形态（此类情况应取消圆角）：
+    '包含窗口状态为最大化，或当前矩形恰好等于某半屏/1/4 屏/整工作区吸附区（Aero Snap 后窗口状态仍是 Normal，需据此判定）。
+    Private Function IsWindowSnapped() As Boolean
+        If WindowState = WindowState.Maximized Then Return True
+        If WindowState = WindowState.Minimized Then Return False
+        Dim handle = New WindowInteropHelper(Me).Handle
+        If handle = IntPtr.Zero Then Return False
+        Dim scr = System.Windows.Forms.Screen.FromHandle(handle)
+        If scr Is Nothing Then Return False
+        Dim wa = scr.WorkingArea '设备像素
+        Dim ds = DpiScale()
+        Dim left = CInt(Left * ds.X)
+        Dim top = CInt(Top * ds.Y)
+        Dim w = CInt(Width * ds.X)
+        Dim h = CInt(Height * ds.Y)
+        Dim right = left + w
+        Dim bottom = top + h
+        Dim tol = 4
+        Dim touchLeft = Math.Abs(left - wa.Left) <= tol
+        Dim touchRight = Math.Abs(right - wa.Right) <= tol
+        Dim touchTop = Math.Abs(top - wa.Top) <= tol
+        Dim touchBottom = Math.Abs(bottom - wa.Bottom) <= tol
+        Dim halfW = wa.Width \ 2
+        Dim halfH = wa.Height \ 2
+        Dim qw = Math.Abs(w - halfW) <= tol
+        Dim qh = Math.Abs(h - halfH) <= tol
+        Dim leftHalf = touchLeft AndAlso touchTop AndAlso touchBottom AndAlso qw
+        Dim rightHalf = touchRight AndAlso touchTop AndAlso touchBottom AndAlso qw
+        Dim topHalf = touchTop AndAlso touchLeft AndAlso touchRight AndAlso qh
+        Dim bottomHalf = touchBottom AndAlso touchLeft AndAlso touchRight AndAlso qh
+        Dim tl = touchLeft AndAlso touchTop AndAlso qw AndAlso qh
+        Dim tr = touchRight AndAlso touchTop AndAlso qw AndAlso qh
+        Dim bl = touchLeft AndAlso touchBottom AndAlso qw AndAlso qh
+        Dim br = touchRight AndAlso touchBottom AndAlso qw AndAlso qh
+        Dim fullTile = touchLeft AndAlso touchTop AndAlso touchRight AndAlso touchBottom AndAlso
+                       Math.Abs(w - wa.Width) <= tol AndAlso Math.Abs(h - wa.Height) <= tol
+        Return leftHalf OrElse rightHalf OrElse topHalf OrElse bottomHalf OrElse tl OrElse tr OrElse bl OrElse br OrElse fullTile
+    End Function
 
 
 
