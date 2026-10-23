@@ -670,6 +670,7 @@ Public Class FormMain
         Dim isMax = (WindowState = WindowState.Maximized)
         Logger.Info($"[WIN] StateChanged: isMax={isMax} WS={WindowState}")
         ApplyWindowChrome()
+        ApplyAcrylic()
         '无论最大化还是还原都要恢复最小尺寸：
         '若在还原时无条件写死 400/300，会把 1/4 分屏（实测 480x257 设备像素）撑成 500x375，破坏贴边几何。
         'StateChanged 触发时 Me.Width/Height 已是变化后的实际值，据此安全恢复即可。
@@ -738,7 +739,81 @@ Public Class FormMain
         Return leftHalf OrElse rightHalf OrElse topHalf OrElse bottomHalf OrElse tl OrElse tr OrElse bl OrElse br OrElse fullTile
     End Function
 
+    '为 ApplyAcrylic 缓存主题标题栏背景，便于关闭时恢复（ThemeRefreshMain 每次刷新都会重设 PanTitle.Background）
+    Private _panTitleThemeBg As System.Windows.Media.Brush = Nothing
 
+    '窗口级亚克力（仅作用于标题栏等透明区域）：Win10 1803+ / Win11 通过 DWM 对窗口透明像素做桌面模糊。
+    '本版采用"面板级"做法——只把标题栏背景置空，主内容背景图完全不动，风险最低。
+    Public Sub ApplyAcrylic()
+        Dim enabled = Settings.Get(Of Boolean)("UiAcrylic")
+        If enabled Then
+            PanTitle.Background = Nothing '透明标题栏以透出亚克力
+            SetWindowAcrylic(GetAcrylicTint())
+        Else
+            If PanTitle.Background IsNot Nothing Then _panTitleThemeBg = PanTitle.Background
+            If _panTitleThemeBg IsNot Nothing Then PanTitle.Background = _panTitleThemeBg
+            SetWindowAcrylic(Nothing)
+        End If
+    End Sub
+
+    '对窗口设置/取消 acrylic 背景模糊。tint 为 Nothing 表示取消。
+    Private Sub SetWindowAcrylic(tint As System.Windows.Media.Color?)
+        Dim ap As New ACCENTPOLICY()
+        If tint.HasValue Then
+            ap.AccentState = ACCENT_ENABLE_ACRYLICBLURBEHIND
+            ap.AccentFlags = 2 '应用 tint 颜色
+            Dim c = tint.Value
+            ap.AccentColor = (CInt(c.A) << 24) Or (CInt(c.B) << 16) Or (CInt(c.G) << 8) Or CInt(c.R)
+        Else
+            ap.AccentState = ACCENT_DISABLED
+        End If
+        Dim hwnd = New WindowInteropHelper(Me).Handle
+        If hwnd = IntPtr.Zero Then Return
+        Dim wcad As New WINCOMPATTRDATA() With {.Attribute = WCA_ACCENT_POLICY}
+        Dim p = Marshal.AllocHGlobal(Marshal.SizeOf(Of ACCENTPOLICY)())
+        Try
+            Marshal.StructureToPtr(ap, p, False)
+            wcad.Data = p
+            wcad.SizeOfData = Marshal.SizeOf(Of ACCENTPOLICY)()
+            SetWindowCompositionAttribute(hwnd, wcad)
+        Catch
+        Finally
+            Marshal.FreeHGlobal(p)
+        End Try
+    End Sub
+
+    '取当前主题色（ColorObject4）作为亚克力 tint，alpha 固定 40（约 16%，保证磨砂通透）
+    Private Function GetAcrylicTint() As System.Windows.Media.Color
+        Try
+            Dim res = Application.Current.TryFindResource("ColorObject4")
+            If TypeOf res Is System.Windows.Media.Color Then
+                Dim c = CType(res, System.Windows.Media.Color)
+                Return System.Windows.Media.Color.FromArgb(40, c.R, c.G, c.B)
+            End If
+        Catch
+        End Try
+        Return System.Windows.Media.Color.FromArgb(40, 255, 255, 255)
+    End Function
+
+    <DllImport("user32.dll")>
+    Private Shared Function SetWindowCompositionAttribute(hWnd As IntPtr, ByRef data As WINCOMPATTRDATA) As Integer
+    End Function
+    <StructLayout(LayoutKind.Sequential)>
+    Private Structure WINCOMPATTRDATA
+        Public Attribute As Integer
+        Public Data As IntPtr
+        Public SizeOfData As Integer
+    End Structure
+    <StructLayout(LayoutKind.Sequential)>
+    Private Structure ACCENTPOLICY
+        Public AccentState As Integer
+        Public AccentFlags As Integer
+        Public AccentColor As Integer
+        Public AnimationId As Integer
+    End Structure
+    Private Const WCA_ACCENT_POLICY As Integer = 19
+    Private Const ACCENT_DISABLED As Integer = 0
+    Private Const ACCENT_ENABLE_ACRYLICBLURBEHIND As Integer = 4
 
     '恢复常规最小尺寸（400/300）。必须取"不超过当前窗口实际尺寸"的值：
     'WPF 的 MinWidth/MinHeight 钳制发生在属性层，若直接设成 400/300，会把 1/4 分屏这类
