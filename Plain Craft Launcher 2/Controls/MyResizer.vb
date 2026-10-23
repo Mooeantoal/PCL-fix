@@ -101,7 +101,7 @@ Public Class MyResizer
         If upElements.ContainsKey(key) Then resizeUp = True
         If downElements.ContainsKey(key) Then resizeDown = True
         _resizeDbg = 0
-        Logger.Info($"[RESIZE] down key={If(key.Name, "?")} L={resizeLeft} R={resizeRight} U={resizeUp} D={resizeDown} cur=({startMousePoint.X},{startMousePoint.Y}) size=({startWindowSize.Width},{startWindowSize.Height})")
+        Logger.Info($"[RESIZE] down key={If(TypeOf key Is FrameworkElement, CType(key, FrameworkElement).Name, "?")} L={resizeLeft} R={resizeRight} U={resizeUp} D={resizeDown} cur=({startMousePoint.X},{startMousePoint.Y}) size=({startWindowSize.Width},{startWindowSize.Height})")
         RunInNewThread(AddressOf updateSizeLoop, "窗口大小调整检测")
     End Sub
 

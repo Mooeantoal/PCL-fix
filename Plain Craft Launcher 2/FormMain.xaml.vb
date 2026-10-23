@@ -1007,14 +1007,14 @@ Public Class FormMain
     Private Shared Function GetMonitorInfo(hMonitor As IntPtr, ByRef lpmi As MONITORINFO) As Boolean
     End Function
     <StructLayout(LayoutKind.Sequential)>
-    Private Structure RECT
+    Private Structure MONITOR_RECT
         Public Left As Integer, Top As Integer, Right As Integer, Bottom As Integer
     End Structure
     <StructLayout(LayoutKind.Sequential, CharSet:=CharSet.Auto)>
     Private Structure MONITORINFO
         Public cbSize As Integer
-        Public rcMonitor As RECT
-        Public rcWork As RECT
+        Public rcMonitor As MONITOR_RECT
+        Public rcWork As MONITOR_RECT
         Public dwFlags As Integer
     End Structure
 
