@@ -710,17 +710,17 @@ Public Class FormMain
         If scr Is Nothing Then Return False
         Dim wa = scr.WorkingArea '设备像素
         Dim ds = DpiScale()
-        Dim left = CInt(Left * ds.X)
-        Dim top = CInt(Top * ds.Y)
+        Dim lx = CInt(Left * ds.X)
+        Dim ty = CInt(Top * ds.Y)
         Dim w = CInt(Width * ds.X)
         Dim h = CInt(Height * ds.Y)
-        Dim right = left + w
-        Dim bottom = top + h
+        Dim rx = lx + w
+        Dim by = ty + h
         Dim tol = 4
-        Dim touchLeft = Math.Abs(left - wa.Left) <= tol
-        Dim touchRight = Math.Abs(right - wa.Right) <= tol
-        Dim touchTop = Math.Abs(top - wa.Top) <= tol
-        Dim touchBottom = Math.Abs(bottom - wa.Bottom) <= tol
+        Dim touchLeft = Math.Abs(lx - wa.Left) <= tol
+        Dim touchRight = Math.Abs(rx - wa.Right) <= tol
+        Dim touchTop = Math.Abs(ty - wa.Top) <= tol
+        Dim touchBottom = Math.Abs(by - wa.Bottom) <= tol
         Dim halfW = wa.Width \ 2
         Dim halfH = wa.Height \ 2
         Dim qw = Math.Abs(w - halfW) <= tol
