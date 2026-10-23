@@ -13,6 +13,9 @@ jobs:
         uses: actions/checkout@v4
         with:
           submodules: recursive
+          # 项目运行依赖 .jar 等资源（见下方 Collect runtime files 步骤），多为 Git LFS 对象；
+          # actions/checkout 默认不拉取 LFS，需显式开启，否则产物里是 LFS 指针文本而非真实文件
+          lfs: true
 
       - name: Setup .NET SDK (for C# 13 in MeloongCore)
         uses: actions/setup-dotnet@v4

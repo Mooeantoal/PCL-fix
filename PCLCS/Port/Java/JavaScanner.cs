@@ -212,7 +212,7 @@ public class JavaScanner
     private static JavaArchitecture DetectArchitecture(JavaInfo info)
     {
         // 简单判定：x86 路径通常含 (x86)；否则 64 位常见。更严谨可用 IsWow64 / PE 头读取。
-        if (info.Folder.Contains("(x86)", StringComparison.OrdinalIgnoreCase))
+        if (info.Folder.IndexOf("(x86)", StringComparison.OrdinalIgnoreCase) >= 0)
             return JavaArchitecture.x86;
         return JavaArchitecture.x64;
     }

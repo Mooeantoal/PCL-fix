@@ -74,7 +74,12 @@ public class MultiSourceUpdater
     public async Task DownloadAsync(
         UpdateVersionInfo version, string outputPath, CancellationToken ct = default)
     {
-        var urls = version.GetDownloadUrls(version);
+        IReadOnlyList<string>? urls = null;
+        foreach (var source in _sources)
+        {
+            var u = source.GetDownloadUrls(version);
+            if (u != null && u.Count > 0) { urls = u; break; }
+        }
         if (urls == null || urls.Count == 0)
             throw new Exception("更新源未提供下载地址");
         if (urls.Count == 1) Log?.Invoke($"[Update] 主下载地址：{urls[0]}");
@@ -89,7 +94,7 @@ public class MultiSourceUpdater
         await downloader.DownloadAsync(
             urls[0],
             outputPath,
-            mirrorUrls: urls.Count > 1 ? urls.GetRange(1, urls.Count - 1) : null,
+            mirrorUrls: urls.Count > 1 ? new List<string>(urls).GetRange(1, urls.Count - 1) : null,
             expectedSha256: version.Sha256,
             progress: progress,
             ct: ct).ConfigureAwait(false);

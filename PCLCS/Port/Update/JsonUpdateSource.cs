@@ -40,7 +40,7 @@ public class JsonUpdateSource : IUpdateSource
 
         return new UpdateVersionInfo
         {
-            VersionName = version,
+            VersionName = version!,
             Sha256 = obj.Value<string>("sha256"),
             Changelog = obj.Value<string>("changelog"),
             DownloadUrl = obj.Value<string>("url") ?? ""

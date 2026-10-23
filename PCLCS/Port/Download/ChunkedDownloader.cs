@@ -4,6 +4,7 @@ using System.IO;
 using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
+using PCLCS.Port.Hash;
 
 namespace PCLCS.Port.Download;
 
