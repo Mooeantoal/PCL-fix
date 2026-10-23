@@ -1000,6 +1000,23 @@ Public Class FormMain
     Private Const SWP_NOACTIVATE As UInteger = &H10UI
     Private Const SWP_SHOWWINDOW As UInteger = &H40UI
     Private Const SWP_ASYNCWINDOWPOS As UInteger = &H4000UI
+    <DllImport("user32.dll")>
+    Private Shared Function MonitorFromWindow(hWnd As IntPtr, flags As UInteger) As IntPtr
+    End Function
+    <DllImport("user32.dll", CharSet:=CharSet.Auto)>
+    Private Shared Function GetMonitorInfo(hMonitor As IntPtr, ByRef lpmi As MONITORINFO) As Boolean
+    End Function
+    <StructLayout(LayoutKind.Sequential)>
+    Private Structure RECT
+        Public Left As Integer, Top As Integer, Right As Integer, Bottom As Integer
+    End Structure
+    <StructLayout(LayoutKind.Sequential, CharSet:=CharSet.Auto)>
+    Private Structure MONITORINFO
+        Public cbSize As Integer
+        Public rcMonitor As RECT
+        Public rcWork As RECT
+        Public dwFlags As Integer
+    End Structure
 
     '取某屏幕（设备像素点）的有效 DPI 缩放（device/WPF）。必须用目标显示器自身 DPI，
     '不能改用窗口当前 DpiScale()：跨屏且 DPI 不同时窗口当前 DPI 仍是旧屏的，用它换算会把窗口摆到错误设备坐标。
@@ -1648,15 +1665,16 @@ End Sub
             handled = True
         ElseIf msg = &H24 Then ' WM_GETMINMAXINFO：把最大化矩形约束到所在显示器工作区（避开任务栏，DPI/多屏自动正确）
             Dim mmi = CType(Marshal.PtrToStructure(lParam, GetType(MINMAXINFO)), MINMAXINFO)
-            Dim scr = System.Windows.Forms.Screen.FromHandle(hwnd)
-            If scr IsNot Nothing Then
-                Dim wa = scr.WorkingArea
-                'ptMaxPosition 是"相对所在显示器原点"的偏移，不是屏幕绝对坐标。
-                '直接写 wa.Left/wa.Top 在副屏上会重复加上显示器偏移，导致最大化窗口跑到屏幕外。
-                mmi.ptMaxPosition.X = wa.Left - scr.Bounds.Left
-                mmi.ptMaxPosition.Y = wa.Top - scr.Bounds.Top
-                mmi.ptMaxSize.X = wa.Width
-                mmi.ptMaxSize.Y = wa.Height
+            '用 GetMonitorInfo 直接取"真实设备像素"工作区（rcWork），不受 DPI 虚拟化影响；
+            'System.Windows.Forms.Screen.WorkingArea 在 125% 等 DPI 下可能返回被缩放过的过小值，
+            '导致最大化矩形比实际工作区小 → 四周都留缝。rcWork/rcMonitor 均为设备像素，差值即最大化矩形。
+            Dim hmon = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST)
+            Dim mi As New MONITORINFO With {.cbSize = Marshal.SizeOf(GetType(MONITORINFO))}
+            If hmon <> IntPtr.Zero AndAlso GetMonitorInfo(hmon, mi) Then
+                mmi.ptMaxPosition.X = mi.rcWork.Left - mi.rcMonitor.Left
+                mmi.ptMaxPosition.Y = mi.rcWork.Top - mi.rcMonitor.Top
+                mmi.ptMaxSize.X = mi.rcWork.Right - mi.rcWork.Left
+                mmi.ptMaxSize.Y = mi.rcWork.Bottom - mi.rcWork.Top
                 '下限跟随 WPF 的 MinWidth/MinHeight（吸附时已被临时放开为 0）：
                 'WPF 内部 hook 会把 ptMinTrackSize 设成 MinWidth/MinHeight 换算后的设备像素
                 '（实测 400x300 DIP @125% → 500x375 设备像素），OS 据此把 SetWindowPos 的请求尺寸钳住，
@@ -1664,7 +1682,7 @@ End Sub
                 '使 ptMinTrackSize 与 WPF 属性保持一致（吸附时 MinWidth=0 → 完全不钳制）。
                 '注意：必须同时设置 handled=True，否则 WPF 内部 hook 会在本 hook 之后执行并覆盖 ptMinTrackSize
                 '（实测：不设 handled 时最终 ptMinTrackSize 仍为 500x375，SetWindowPos 被钳成 500x375）。
-                Dim sc = GetScreenScale(New System.Windows.Point(wa.Left + wa.Width / 2, wa.Top + wa.Height / 2))
+                Dim sc = GetScreenScale(New System.Windows.Point(mi.rcWork.Left + (mi.rcWork.Right - mi.rcWork.Left) / 2, mi.rcWork.Top + (mi.rcWork.Bottom - mi.rcWork.Top) / 2))
                 mmi.ptMinTrackSize.X = CInt(Me.MinWidth * sc.X)
                 mmi.ptMinTrackSize.Y = CInt(Me.MinHeight * sc.Y)
                 '上限放宽到虚拟屏：吸附用 SetWindowPos 直接定位（设备像素），跨屏吸附不会被原显示器工作区钳制
