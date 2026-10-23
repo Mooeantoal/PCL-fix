@@ -650,6 +650,8 @@ Public Class FormMain
     Private _frosBrush As System.Windows.Media.VisualBrush = Nothing
     '关闭亚克力时侧栏/首页主区的纯白底(提升对比度，避免透出背景图)
     Private _panelWhite As System.Windows.Media.SolidColorBrush = Nothing
+    '关闭亚克力时右列(主页右半块/其它页右半)的浅蓝底(复刻 PCL-CE 默认 SkyBlue 主题的 OKLCH 彩色背景渐变)
+    Private _panelBlue As System.Windows.Media.Brush = Nothing
     Private _frameInit As Boolean = False
     Private _clipInit As Boolean = False
     Private _clipW As Double = 0, _clipH As Double = 0
@@ -829,10 +831,10 @@ Public Class FormMain
             PanAcrylic.Visibility = Visibility.Visible
             UpdateAcrylicMask()
         Else
-            '关闭亚克力：侧栏与首页主区用不透明白底，提升对比度(避免透出背景图)
+            '关闭亚克力：左列(所有页左半/侧栏)用不透白底，右列用复刻 PCL-CE 的浅蓝渐变，恢复分区配色并提升对比度
             RectLeftBackground.Fill = GetSolidPanelBrush()
             PanMainLeft.Background = GetSolidPanelBrush()
-            PanMainRight.Background = GetSolidPanelBrush()
+            PanMainRight.Background = GetRightPanelBrush()
             PanAcrylic.Visibility = Visibility.Collapsed
             RectAcrylicBlur.Fill = Nothing
             PanAcrylic.OpacityMask = Nothing
@@ -907,11 +909,25 @@ Public Class FormMain
         RectAcrylicBlur.Margin = New Thickness(-radius / 1.8)
     End Sub
 
-    '面板底色：开启亚克力时返回 Nothing(置透明露出磨砂层)；关闭时返回不透明白底(保证侧栏与首页对比度，避免透出背景图)。
+    '左列/侧边栏底色：开启亚克力时返回 Nothing(置透明露出磨砂层)；关闭时返回不透白底(保证左列对比度，避免透出背景图)。
     Private Function GetSolidPanelBrush() As System.Windows.Media.Brush
         If Settings.Get(Of Boolean)("UiAcrylic") Then Return Nothing
         If _panelWhite Is Nothing Then _panelWhite = New System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(255, 255, 255))
         Return _panelWhite
+    End Function
+    '右列底色：开启亚克力时返回 Nothing(透明露出磨砂)；关闭时返回复刻 PCL-CE 默认 SkyBlue 主题的浅蓝渐变(OKLCH 转 sRGB)。
+    Private Function GetRightPanelBrush() As System.Windows.Media.Brush
+        If Settings.Get(Of Boolean)("UiAcrylic") Then Return Nothing
+        If _panelBlue Is Nothing Then
+            Dim g As New System.Windows.Media.LinearGradientBrush()
+            g.StartPoint = New System.Windows.Point(0.9, 0)
+            g.EndPoint = New System.Windows.Point(0.1, 1)
+            g.GradientStops.Add(New System.Windows.Media.GradientStop(System.Windows.Media.Color.FromRgb(&H81, &HD9, &HF5), -0.1))
+            g.GradientStops.Add(New System.Windows.Media.GradientStop(System.Windows.Media.Color.FromRgb(&HE1, &HF5, &HFF), 0.4))
+            g.GradientStops.Add(New System.Windows.Media.GradientStop(System.Windows.Media.Color.FromRgb(&H9C, &HD0, &HFF), 1.1))
+            _panelBlue = g
+        End If
+        Return _panelBlue
     End Function
 
     '1px 边框颜色取 DWM 强调色（与 Windows 设置一致，各版本通用）
@@ -1951,7 +1967,7 @@ Public Class FormMain
                 '把新页面添加进容器
                 PanMainRight.Child = PageRight
                 PageRight.Opacity = 0
-                PanMainRight.Background = GetSolidPanelBrush()
+                PanMainRight.Background = GetRightPanelBrush()
                 AniControlEnabled -= 1
                 RunInUi(Sub() BtnExtraBack.ShowRefresh(), True)
             End Sub, 110),
