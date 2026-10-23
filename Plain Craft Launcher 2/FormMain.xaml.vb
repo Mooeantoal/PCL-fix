@@ -847,8 +847,9 @@ Public Class FormMain
         Dim scr = System.Windows.Forms.Screen.FromPoint(New System.Drawing.Point(CInt(cur.X), CInt(cur.Y)))
         If scr Is Nothing Then Return ""
         Dim b = scr.Bounds '全屏物理边缘（设备像素）
-        Dim sc = GetScreenScale(cur) '光标所在屏 DPI（device/DIP）
-        Dim cx = cur.X * sc.X, cy = cur.Y * sc.Y '光标 → 设备像素，与 Screen.Bounds 同坐标系
+        'cur 已是设备像素（System.Windows.Forms.Cursor.Position 返回物理屏幕坐标），与 Screen.Bounds 同坐标系，无需再乘 DPI；
+        '原 cx = cur.X * sc.X 会重复换算，导致 125% DPI 下左右触发区不对称（右侧触发区偏大、左侧偏小）。
+        Dim cx = cur.X, cy = cur.Y '光标设备像素，与 Screen.Bounds 同坐标系
         Dim thr = 16 '阈值（设备像素），光标进入此范围即判定吸附
         Dim inLeft = cx <= b.Left + thr
         Dim inRight = cx >= b.Right - thr
