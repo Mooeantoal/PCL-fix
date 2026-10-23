@@ -642,12 +642,12 @@ Public Class FormMain
     Private _borderBrush As System.Windows.Media.Brush = Nothing
     '亚克力在拖动/缩放期间被临时挂起（关闭磨砂）以消除卡顿，松手后恢复
     Private _acrylicSuspended As Boolean = False
-    '亚克力挖洞遮罩（在 ImgBack 上抠出侧栏与首页主区，露出桌面磨砂）
-    Private _maskCanvas As System.Windows.Controls.Canvas = Nothing
-    Private _maskWhite As System.Windows.Shapes.Rectangle = Nothing
-    Private _maskSidebar As System.Windows.Shapes.Rectangle = Nothing
-    Private _maskMain As System.Windows.Shapes.Rectangle = Nothing
-    Private _maskBrush As System.Windows.Media.VisualBrush = Nothing
+    '窗口内磨砂层显示区域遮罩（白=显示磨砂、黑=隐藏）：仅覆盖侧栏与首页主区
+    Private _frosCanvas As System.Windows.Controls.Canvas = Nothing
+    Private _frosBlack As System.Windows.Shapes.Rectangle = Nothing
+    Private _frosSidebar As System.Windows.Shapes.Rectangle = Nothing
+    Private _frosMain As System.Windows.Shapes.Rectangle = Nothing
+    Private _frosBrush As System.Windows.Media.VisualBrush = Nothing
     Private _frameInit As Boolean = False
     Private _clipInit As Boolean = False
     Private _clipW As Double = 0, _clipH As Double = 0
@@ -812,122 +812,98 @@ Public Class FormMain
         Return leftHalf OrElse rightHalf OrElse topHalf OrElse bottomHalf OrElse tl OrElse tr OrElse bl OrElse br OrElse fullTile
     End Function
 
-    '面板级亚克力：仅侧栏与首页白色板块透出桌面磨砂；标题栏恢复渐变，其余区域（背景图等）照常。
-    '原理：窗口整体开启 DWM 磨砂，但在背景图 ImgBack 上"挖洞"（OpacityMask）于侧栏与首页主区，
-    '挖洞处窗口透明 → 透出桌面模糊；侧栏背景与首页页面背景置透明以露出洞口。
+    '窗口内“假磨砂”：透明窗口(AllowsTransparency)无法使用 DWM 亚克力，故改为在窗口内把背景图强模糊+浅色罩层，
+    '仅覆盖侧栏与首页板块；标题栏保持渐变，其余区域照常显示背景图。
     Public Sub ApplyAcrylic()
         Dim enabled = Settings.Get(Of Boolean)("UiAcrylic")
         If enabled Then
-            '侧栏背景透明（露出洞口）
+            '侧栏/首页主区容器背景透明，露出下方磨砂层（其上的白色卡片/按钮不受影响）
             RectLeftBackground.Fill = Nothing
-            '首页主区容器透明（PanMainLeft/Right 为 Border，自带 Background），露出 ImgBack 上的洞口
             PanMainLeft.Background = Nothing
             PanMainRight.Background = Nothing
-            '拖动/缩放挂起期间不要重开磨砂（由 WM_EXITSIZEMOVE 恢复），否则会再次卡顿
-            If Not _acrylicSuspended Then SetWindowAcrylic(GetAcrylicTint())
+            '背景图保持完整清晰，磨砂由上层 PanAcrylic 叠加，故清除可能残留的挖洞遮罩
+            ImgBack.OpacityMask = Nothing
+            RefreshAcrylicBrush()
+            PanAcrylic.Visibility = Visibility.Visible
             UpdateAcrylicMask()
         Else
             '恢复侧栏与首页容器背景（ClearValue 回到 XAML/样式默认值）
             RectLeftBackground.ClearValue(System.Windows.Shapes.Rectangle.FillProperty)
             PanMainLeft.ClearValue(System.Windows.Controls.Border.BackgroundProperty)
             PanMainRight.ClearValue(System.Windows.Controls.Border.BackgroundProperty)
-            SetWindowAcrylic(Nothing)
+            PanAcrylic.Visibility = Visibility.Collapsed
+            RectAcrylicBlur.Fill = Nothing
+            PanAcrylic.OpacityMask = Nothing
             ImgBack.OpacityMask = Nothing
         End If
     End Sub
 
-    '更新 ImgBack 的挖洞遮罩：白色=背景图可见，黑色=透明洞口（透出桌面磨砂）。
-    '侧栏恒挖洞；首页主区仅在启动标签页激活时挖洞（其余页面显示背景图）。
+    '更新磨砂层 PanAcrylic 的显示区域：OpacityMask 白=显示磨砂、黑=隐藏；仅侧栏与首页主区为白。
     Private Sub UpdateAcrylicMask()
-        If Not Settings.Get(Of Boolean)("UiAcrylic") Then
-            ImgBack.OpacityMask = Nothing
+        If Not Settings.Get(Of Boolean)("UiAcrylic") OrElse PanAcrylic.Visibility <> Visibility.Visible Then
+            PanAcrylic.OpacityMask = Nothing
             Return
         End If
-        If _maskCanvas Is Nothing Then
-            _maskCanvas = New System.Windows.Controls.Canvas()
-            _maskWhite = New System.Windows.Shapes.Rectangle() With {.Fill = System.Windows.Media.Brushes.White}
-            _maskSidebar = New System.Windows.Shapes.Rectangle() With {.Fill = System.Windows.Media.Brushes.Black}
-            _maskMain = New System.Windows.Shapes.Rectangle() With {.Fill = System.Windows.Media.Brushes.Black}
-            _maskCanvas.Children.Add(_maskWhite)
-            _maskCanvas.Children.Add(_maskSidebar)
-            _maskCanvas.Children.Add(_maskMain)
-            _maskBrush = New System.Windows.Media.VisualBrush(_maskCanvas) With {.Stretch = System.Windows.Media.Stretch.Fill}
-            ImgBack.OpacityMask = _maskBrush
+        If _frosCanvas Is Nothing Then
+            _frosCanvas = New System.Windows.Controls.Canvas()
+            _frosBlack = New System.Windows.Shapes.Rectangle() With {.Fill = System.Windows.Media.Brushes.Black}
+            _frosSidebar = New System.Windows.Shapes.Rectangle() With {.Fill = System.Windows.Media.Brushes.White}
+            _frosMain = New System.Windows.Shapes.Rectangle() With {.Fill = System.Windows.Media.Brushes.White}
+            _frosCanvas.Children.Add(_frosBlack)
+            _frosCanvas.Children.Add(_frosSidebar)
+            _frosCanvas.Children.Add(_frosMain)
+            _frosBrush = New System.Windows.Media.VisualBrush(_frosCanvas) With {.Stretch = System.Windows.Media.Stretch.Fill}
+            PanAcrylic.OpacityMask = _frosBrush
         End If
-        Dim w = ImgBack.ActualWidth, h = ImgBack.ActualHeight
+        Dim w = PanAcrylic.ActualWidth, h = PanAcrylic.ActualHeight
         If w <= 0 OrElse h <= 0 Then Return
-        _maskWhite.Width = w : _maskWhite.Height = h
-        '侧栏洞口
-        Dim gt = PanLeft.TransformToVisual(ImgBack)
+        _frosBlack.Width = w : _frosBlack.Height = h
+        '侧栏区域（白=显示磨砂）
+        Dim gt = PanLeft.TransformToVisual(PanAcrylic)
         Dim sp = gt.Transform(New System.Windows.Point(0, 0))
-        _maskSidebar.Width = PanLeft.ActualWidth
-        _maskSidebar.Height = h
-        System.Windows.Controls.Canvas.SetLeft(_maskSidebar, sp.X)
-        System.Windows.Controls.Canvas.SetTop(_maskSidebar, sp.Y)
-        '首页主区洞口（仅启动标签页激活时）
+        _frosSidebar.Width = PanLeft.ActualWidth
+        _frosSidebar.Height = h
+        System.Windows.Controls.Canvas.SetLeft(_frosSidebar, sp.X)
+        System.Windows.Controls.Canvas.SetTop(_frosSidebar, sp.Y)
+        '首页主区（仅启动标签页激活时显示磨砂，其余页面不显示）
         If PanMainLeft.Child Is FrmLaunchLeft AndAlso PanMainRight.Child Is FrmLaunchRight Then
-            Dim gm = PanMain.TransformToVisual(ImgBack)
+            Dim gm = PanMain.TransformToVisual(PanAcrylic)
             Dim mp = gm.Transform(New System.Windows.Point(0, 0))
-            _maskMain.Width = PanMain.ActualWidth
-            _maskMain.Height = PanMain.ActualHeight
-            System.Windows.Controls.Canvas.SetLeft(_maskMain, mp.X)
-            System.Windows.Controls.Canvas.SetTop(_maskMain, mp.Y)
-            _maskMain.Visibility = System.Windows.Visibility.Visible
+            _frosMain.Width = PanMain.ActualWidth
+            _frosMain.Height = PanMain.ActualHeight
+            System.Windows.Controls.Canvas.SetLeft(_frosMain, mp.X)
+            System.Windows.Controls.Canvas.SetTop(_frosMain, mp.Y)
+            _frosMain.Visibility = Visibility.Visible
         Else
-            _maskMain.Visibility = System.Windows.Visibility.Collapsed
+            _frosMain.Visibility = Visibility.Collapsed
         End If
     End Sub
 
-    '对窗口设置/取消 acrylic 背景模糊。tint 为 Nothing 表示取消。
-    Private Sub SetWindowAcrylic(tint As System.Windows.Media.Color?)
-        Dim ap As New ACCENTPOLICY()
-        If tint.HasValue Then
-            ap.AccentState = ACCENT_ENABLE_ACRYLICBLURBEHIND
-            ap.AccentFlags = 2 '应用 tint 颜色
-            Dim c = tint.Value
-            ap.AccentColor = (CInt(c.A) << 24) Or (CInt(c.B) << 16) Or (CInt(c.G) << 8) Or CInt(c.R)
+    '把当前背景图复制一份作强模糊，作为窗口内磨砂层的底图；背景图变化时需重新调用（透明窗口无法用 DWM 亚克力，故用此法）。
+    Private Sub RefreshAcrylicBrush()
+        Dim src = TryCast(ImgBack.Background, System.Windows.Media.ImageBrush)
+        If src IsNot Nothing AndAlso src.ImageSource IsNot Nothing Then
+            '共享 ImageSource(不复制位图)，仅复制作业方式(拉伸/平铺/对齐)，避免背景图更换后副本过期
+            RectAcrylicBlur.Fill = New System.Windows.Media.ImageBrush With {
+                .ImageSource = src.ImageSource,
+                .Stretch = src.Stretch,
+                .TileMode = src.TileMode,
+                .Viewport = src.Viewport,
+                .ViewportUnits = src.ViewportUnits,
+                .AlignmentX = src.AlignmentX,
+                .AlignmentY = src.AlignmentY
+            }
+        ElseIf ImgBack.Background IsNot Nothing Then
+            RectAcrylicBlur.Fill = ImgBack.Background.Clone()
         Else
-            ap.AccentState = ACCENT_DISABLED
+            RectAcrylicBlur.Fill = Nothing
+            Return
         End If
-        Dim hwnd = New WindowInteropHelper(Me).Handle
-        If hwnd = IntPtr.Zero Then Return
-        Dim wcad As New WINCOMPATTRDATA() With {.Attribute = WCA_ACCENT_POLICY}
-        Dim p = Marshal.AllocHGlobal(Marshal.SizeOf(Of ACCENTPOLICY)())
-        Try
-            Marshal.StructureToPtr(ap, p, False)
-            wcad.Data = p
-            wcad.SizeOfData = Marshal.SizeOf(Of ACCENTPOLICY)()
-            SetWindowCompositionAttribute(hwnd, wcad)
-        Catch
-        Finally
-            Marshal.FreeHGlobal(p)
-        End Try
+        '强模糊做出磨砂质感；负边距避免模糊边缘衰减出现黑边
+        Dim radius As Double = 40
+        RectAcrylicBlur.Effect = New Effects.BlurEffect With {.Radius = radius}
+        RectAcrylicBlur.Margin = New Thickness(-radius / 1.8)
     End Sub
-
-    '亚克力 tint：接近 Windows 原生设置的中性浅色磨砂（白偏灰，alpha≈200），不过分通透以保证可见性
-    Private Function GetAcrylicTint() As System.Windows.Media.Color
-        Return System.Windows.Media.Color.FromArgb(200, 240, 240, 240)
-    End Function
-
-    <DllImport("user32.dll")>
-    Private Shared Function SetWindowCompositionAttribute(hWnd As IntPtr, ByRef data As WINCOMPATTRDATA) As Integer
-    End Function
-    <StructLayout(LayoutKind.Sequential)>
-    Private Structure WINCOMPATTRDATA
-        Public Attribute As Integer
-        Public Data As IntPtr
-        Public SizeOfData As Integer
-    End Structure
-    <StructLayout(LayoutKind.Sequential)>
-    Private Structure ACCENTPOLICY
-        Public AccentState As Integer
-        Public AccentFlags As Integer
-        Public AccentColor As Integer
-        Public AnimationId As Integer
-    End Structure
-    Private Const WCA_ACCENT_POLICY As Integer = 19
-    Private Const ACCENT_DISABLED As Integer = 0
-    Private Const ACCENT_ENABLE_ACRYLICBLURBEHIND As Integer = 4
 
     '1px 边框颜色取 DWM 强调色（与 Windows 设置一致，各版本通用）
     <DllImport("dwmapi.dll")>
@@ -1101,6 +1077,8 @@ Public Class FormMain
                     Brush.AlignmentY = AlignmentY.Bottom
             End Select
         End If
+        '刷新窗口内磨砂层底图（若开启了亚克力）：背景图/适应方式变化后同步模糊副本
+        If Settings.Get(Of Boolean)("UiAcrylic") Then RefreshAcrylicBrush()
         '标题栏显示类型
         Select Case Settings.Get(Of Integer)("UiLogoType")
             Case 0 '无
@@ -1514,15 +1492,16 @@ Public Class FormMain
             End If
             handled = True
             Return IntPtr.Zero
-        ElseIf msg = &H231 Then ' WM_ENTERSIZEMOVE：开始拖动/缩放，临时关闭亚克力磨砂以消除卡顿（透明窗口+磨砂在移动时每帧重采样桌面，开销极大）
-            If Settings.Get(Of Boolean)("UiAcrylic") Then
+        ElseIf msg = &H231 Then ' WM_ENTERSIZEMOVE：开始拖动/缩放，临时隐藏窗口内磨砂层以消除卡顿
+            If Settings.Get(Of Boolean)("UiAcrylic") AndAlso PanAcrylic.Visibility = Visibility.Visible Then
                 _acrylicSuspended = True
-                SetWindowAcrylic(Nothing)
+                PanAcrylic.Visibility = Visibility.Collapsed
             End If
-        ElseIf msg = &H232 Then ' WM_EXITSIZEMOVE：结束拖动/缩放，恢复亚克力磨砂
+        ElseIf msg = &H232 Then ' WM_EXITSIZEMOVE：结束拖动/缩放，恢复磨砂层
             If _acrylicSuspended Then
                 _acrylicSuspended = False
-                SetWindowAcrylic(GetAcrylicTint())
+                PanAcrylic.Visibility = Visibility.Visible
+                UpdateAcrylicMask()
             End If
         End If
         Return IntPtr.Zero

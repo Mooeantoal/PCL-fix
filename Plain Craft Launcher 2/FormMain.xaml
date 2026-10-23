@@ -31,6 +31,11 @@
                 </Grid.RowDefinitions>
                 <Canvas x:Name="ImgBack" IsHitTestVisible="False" Grid.Row="1" RenderOptions.BitmapScalingMode="LowQuality"
                         HorizontalAlignment="Stretch" VerticalAlignment="Stretch" />
+                <!-- 窗口内“假磨砂”层：透明窗口(AllowsTransparency)无法用 DWM 亚克力，故在窗口内把背景图强模糊+浅色罩层，仅侧栏与首页区域显示(由 OpacityMask 控制) -->
+                <Grid x:Name="PanAcrylic" Grid.Row="1" IsHitTestVisible="False" Visibility="Collapsed">
+                    <Rectangle x:Name="RectAcrylicBlur" IsHitTestVisible="False" />
+                    <Rectangle x:Name="RectAcrylicTint" IsHitTestVisible="False" Fill="#CCF2F2F2" />
+                </Grid>
                 <Grid x:Name="PanTitle" Height="48" shell:WindowChrome.IsHitTestVisibleInChrome="False">
                     <Grid.Background>
                         <LinearGradientBrush EndPoint="1,0" StartPoint="0,0">
