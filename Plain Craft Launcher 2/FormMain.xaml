@@ -24,9 +24,6 @@
             </TransformGroup>
         </Grid.RenderTransform>
         <Border Margin="0" x:Name="BorderForm" CornerRadius="6" BorderThickness="0" SnapsToDevicePixels="True" UseLayoutRounding="True">
-            <Border.Effect>
-                <DropShadowEffect x:Name="ShadowEffect" ShadowDepth="1" Direction="270" BlurRadius="16" Opacity="0.35" Color="Black" />
-            </Border.Effect>
             <Grid x:Name="PanForm" SnapsToDevicePixels="False" UseLayoutRounding="False">
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto" />
