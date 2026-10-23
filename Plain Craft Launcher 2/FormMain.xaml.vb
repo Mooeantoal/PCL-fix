@@ -787,7 +787,10 @@ Public Class FormMain
         Dim h = CInt(Height * ds.Y)
         Dim rx = lx + w
         Dim by = ty + h
-        Dim tol = 4
+        '容差需覆盖 Windows 11 分屏在窗口与屏幕边缘之间留的缝隙：吸附后各贴屏边会被均匀向内缩进若干像素，
+        '连同高 DPI 下逻辑/设备像素换算的取整误差，故放大到 20 设备像素（原 4 过小，导致吸附态漏判 → 分屏仍画边框）。
+        '误判风险低：需同时满足"应贴的边贴合工作区 + 尺寸≈半/四分屏"才命中，普通浮动窗几乎不可能恰好兼得。
+        Dim tol = 20
         Dim touchLeft = Math.Abs(lx - wa.Left) <= tol
         Dim touchRight = Math.Abs(rx - wa.Right) <= tol
         Dim touchTop = Math.Abs(ty - wa.Top) <= tol
