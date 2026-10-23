@@ -344,6 +344,8 @@ Public Class FormMain
     Private Sub FormMain_Loaded(sender As Object, e As RoutedEventArgs) Handles Me.Loaded
         ApplicationStartTick = GetTimeMs()
         Handle = New WindowInteropHelper(Me).Handle
+        PanForm.Clip = RectForm '内容裁剪到圆角（边框/阴影放在 BorderForm 上，避免被裁剪）
+        AddHandler Me.LayoutUpdated, AddressOf OnLayoutUpdated
         '显示配置(分辨率/DPI)变化监听：即使窗口未失焦也立即重钉分屏窗，消除空隙/溢出
         '读取设置
         UpdateBackgroundAndTitleBar()
@@ -634,14 +636,24 @@ Public Class FormMain
     ''' 是否可以向注册表储存尺寸改变信息。以此避免初始化时误储存。
     ''' </summary>
     Public IsSizeSaveable As Boolean = False
+    '原生窗口阴影 + 1px 边框相关状态
+    Private _shadowMargin As Double = 8
+    Private _win10 As Boolean = False
+    Private _borderBrush As System.Windows.Media.Brush = Nothing
+    Private _frameInit As Boolean = False
+    Private _clipInit As Boolean = False
+    Private _clipW As Double = 0, _clipH As Double = 0
+    Private _clipState As WindowState = WindowState.Normal
     Private Sub FormMain_SizeChanged() Handles Me.SizeChanged, Me.Loaded
         If IsSizeSaveable Then
             Settings.Set("WindowHeight", Height)
             Settings.Set("WindowWidth", Width)
         End If
-        RectForm.Rect = New Rect(0, 0, BorderForm.ActualWidth, BorderForm.ActualHeight)
-        PanForm.Width = BorderForm.ActualWidth + 0.001
-        PanForm.Height = BorderForm.ActualHeight + 0.001
+        Dim bw = BorderForm.ActualWidth - 2 * BorderForm.BorderThickness.Left
+        Dim bh = BorderForm.ActualHeight - 2 * BorderForm.BorderThickness.Top
+        RectForm.Rect = New Rect(0, 0, bw, bh)
+        PanForm.Width = bw + 0.001
+        PanForm.Height = bh + 0.001
         PanMain.Width = PanForm.Width
         PanMain.Height = Math.Max(0, PanForm.Height - PanTitle.ActualHeight)
         '尺寸变化（含 Aero Snap 吸附到半屏/1/4 屏）时同步刷新圆角：分屏态取消圆角、普通浮动态保留圆角。
@@ -677,6 +689,11 @@ Public Class FormMain
         RestoreMinSize()
     End Sub
 
+    '位置变化（如跨屏拖动、同尺寸下改变分屏状态）时刷新圆角/边距：SizeChanged 不触发，需在此补刷
+    Private Sub FormMain_LocationChanged(sender As Object, e As EventArgs) Handles Me.LocationChanged
+        ApplyWindowChrome()
+    End Sub
+
     '统一设置窗口装饰（圆角/边距/标题栏可拖拽区/最大化按钮图标）。
     '原生缩放边与拖动/吸附由 WindowChrome 接管，不再自管 Resizer/分屏。
     '圆角规则：最大化或分屏（吸附到半屏/1/4 屏/整工作区）时取消圆角，普通浮动窗口保留 6px 圆角。
@@ -686,10 +703,25 @@ Public Class FormMain
         Dim isTiled = isMax OrElse IsWindowSnapped()
         RectForm.RadiusX = If(isTiled, 0, 6)
         RectForm.RadiusY = If(isTiled, 0, 6)
-        '可视内容直接填满真实窗口矩形（不再保留透明留白），故边距恒为 0：
-        '既消除"窗口矩形比内容大一圈"造成的假透明窗口，又让原生缩放边落在实打实的内容边缘上。
+        '首次运行：取 OS 版本与 DWM 强调色（用于边框颜色，与 Windows 设置一致）
+        If Not _frameInit Then
+            _win10 = IsWin10OrLater()
+            _borderBrush = New System.Windows.Media.SolidColorBrush(GetDwmAccentColor())
+            _frameInit = True
+        End If
+        '可视内容直接填满真实窗口矩形；浮动态在内容外围留 8px 透明边距以承载原生阴影与 1px 边框，
+        '贴边/最大化态取消边距让窗口严丝合缝贴满屏幕（此时无阴影、无边框）。
         PanBack.Margin = New Thickness(0)
-        BorderForm.Margin = New Thickness(0)
+        BorderForm.Margin = New Thickness(If(isTiled, 0, _shadowMargin))
+        BorderForm.CornerRadius = New CornerRadius(If(isTiled, 0, 6))
+        If isTiled Then
+            BorderForm.BorderThickness = New Thickness(0)
+            BorderForm.Effect = Nothing
+        Else
+            BorderForm.Effect = ShadowEffect
+            BorderForm.BorderThickness = New Thickness(If(_win10, 1, 0))
+            If _win10 Then BorderForm.BorderBrush = _borderBrush
+        End If
         '标题栏即窗口顶部的 48px 内容，故 CaptionHeight 恒为 48（覆盖整个标题栏用于拖拽）。
         Dim chrome = System.Windows.Shell.WindowChrome.GetWindowChrome(Me)
         If chrome IsNot Nothing Then
@@ -698,6 +730,37 @@ Public Class FormMain
             chrome.ResizeBorderThickness = If(isMax, New Thickness(0), New Thickness(6))
         End If
         BtnTitleMax.Logo = If(isMax, "F1 M6,2 h13 v13 h-3 M6,2 v3 M3,5 h13 v13 h-13 Z", "F1 M2,2 h16 v16 h-16 Z")
+        SyncClip()
+    End Sub
+
+    '每帧布局后保持裁剪矩形(RectForm.Rect)与圆角半径与当前内容尺寸/窗口状态严格同步，
+    '消除"最大化动画首帧仅左上角残留圆角"的脱帧：裁剪原点在 (0,0) 左上，旧尺寸的裁剪矩形只会让
+    '左上角成为唯一与窗口边重合的圆角，故尺寸与圆角必须在同一布局周期内一起更新。
+    Private Sub SyncClip()
+        Dim w = BorderForm.ActualWidth - 2 * BorderForm.BorderThickness.Left
+        Dim h = BorderForm.ActualHeight - 2 * BorderForm.BorderThickness.Top
+        If w <= 0 OrElse h <= 0 Then Return
+        Dim needRect = (RectForm.Rect.Width <> w OrElse RectForm.Rect.Height <> h)
+        Dim needRadius = needRect OrElse (Not _clipInit) OrElse (_clipState <> WindowState)
+        If Not needRect AndAlso Not needRadius Then Return
+        If needRect Then RectForm.Rect = New Rect(0, 0, w, h)
+        If needRadius Then
+            Dim r As Integer
+            If WindowState = WindowState.Maximized Then
+                r = 0
+            ElseIf WindowState = WindowState.Minimized Then
+                r = RectForm.RadiusX
+            Else
+                r = If(IsWindowSnapped(), 0, 6)
+            End If
+            RectForm.RadiusX = r : RectForm.RadiusY = r
+            _clipState = WindowState
+        End If
+        _clipW = w : _clipH = h : _clipInit = True
+    End Sub
+
+    Private Sub OnLayoutUpdated(sender As Object, e As EventArgs)
+        SyncClip()
     End Sub
 
     '判断窗口是否处于"贴边分屏/最大化"形态（此类情况应取消圆角）：
@@ -814,6 +877,45 @@ Public Class FormMain
     Private Const WCA_ACCENT_POLICY As Integer = 19
     Private Const ACCENT_DISABLED As Integer = 0
     Private Const ACCENT_ENABLE_ACRYLICBLURBEHIND As Integer = 4
+
+    '原生窗口阴影所需的 DWM 强调色（用于 1px 边框颜色，与 Windows 设置一致）
+    <DllImport("dwmapi.dll")>
+    Private Shared Function DwmGetColorizationColor(ByRef pcrColorization As UInteger, ByRef pfOpaqueBlend As Boolean) As Integer
+    End Function
+    '可靠的 OS 版本判断（Environment.OSVersion 在 Win10+ 可能因缺少 manifest 而失真）
+    <StructLayout(LayoutKind.Sequential)>
+    Private Structure RTL_OSVERSIONINFOEX
+        Public dwOSVersionInfoSize As UInteger
+        Public dwMajorVersion As UInteger
+        Public dwMinorVersion As UInteger
+        Public dwBuildNumber As UInteger
+        Public dwPlatformId As UInteger
+        <MarshalAs(UnmanagedType.ByValTStr, SizeConst:=128)> Public szCSDVersion As String
+    End Structure
+    <DllImport("ntdll.dll")>
+    Private Shared Function RtlGetVersion(ByRef lpVersionInformation As RTL_OSVERSIONINFOEX) As Integer
+    End Function
+    Private Function IsWin10OrLater() As Boolean
+        Dim vi As New RTL_OSVERSIONINFOEX()
+        vi.dwOSVersionInfoSize = Marshal.SizeOf(Of RTL_OSVERSIONINFOEX)()
+        Try
+            RtlGetVersion(vi)
+            Return vi.dwMajorVersion >= 10
+        Catch
+            Return False
+        End Try
+    End Function
+    Private Function GetDwmAccentColor() As System.Windows.Media.Color
+        Try
+            Dim c As UInteger, opaque As Boolean
+            If DwmGetColorizationColor(c, opaque) = 0 Then
+                Dim r = CByte((c >> 16) And &HFF), g = CByte((c >> 8) And &HFF), b = CByte(c And &HFF)
+                Return System.Windows.Media.Color.FromArgb(255, r, g, b)
+            End If
+        Catch
+        End Try
+        Return System.Windows.Media.Color.FromArgb(255, 153, 153, 153)
+    End Function
 
     '恢复常规最小尺寸（400/300）。必须取"不超过当前窗口实际尺寸"的值：
     'WPF 的 MinWidth/MinHeight 钳制发生在属性层，若直接设成 400/300，会把 1/4 分屏这类
