@@ -95,7 +95,7 @@ public class ChunkedDownloader
                 using var resp = await Client.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, ct)
                     .ConfigureAwait(false);
                 resp.EnsureSuccessStatusCode();
-                using var src = await resp.Content.ReadAsStreamAsync(ct).ConfigureAwait(false);
+                using var src = await resp.Content.ReadAsStreamAsync().ConfigureAwait(false);
                 using var dst = new FileStream(outputPath, FileMode.Create, FileAccess.Write, FileShare.None, 81920, true);
                 var buffer = new byte[81920];
                 int read;
@@ -174,7 +174,7 @@ public class ChunkedDownloader
                     .ConfigureAwait(false);
                 if (!resp.IsSuccessStatusCode && resp.StatusCode != System.Net.HttpStatusCode.PartialContent)
                     throw new Exception($"分块下载返回 {resp.StatusCode}");
-                using var src = await resp.Content.ReadAsStreamAsync(ct).ConfigureAwait(false);
+                using var src = await resp.Content.ReadAsStreamAsync().ConfigureAwait(false);
                 using var dst = new FileStream(partPath, FileMode.Create, FileAccess.Write, FileShare.None, 81920, true);
                 var buffer = new byte[81920];
                 int read;

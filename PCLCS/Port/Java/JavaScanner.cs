@@ -142,15 +142,24 @@ public class JavaScanner
                     UseShellExecute = false,
                     CreateNoWindow = true
                 };
-                using var p = Process.Start(psi)!;
-                var output = p.StandardError.ReadToEnd() + p.StandardOutput.ReadToEnd();
-                p.WaitForExit(5000);
-                var idx = output.IndexOf('"');
-                if (idx >= 0)
+                // 注意：net48 上 Process.Start(ProcessStartInfo) 返回 bool，不是 Process，故用 new Process 写法
+                var p = new Process { StartInfo = psi };
+                p.Start();
+                try
                 {
-                    var end = output.IndexOf('"', idx + 1);
-                    if (end > idx)
-                        info.Version = ParseJavaVersion(output.Substring(idx + 1, end - idx - 1));
+                    var output = p.StandardError.ReadToEnd() + p.StandardOutput.ReadToEnd();
+                    p.WaitForExit(5000);
+                    var idx = output.IndexOf('"');
+                    if (idx >= 0)
+                    {
+                        var end = output.IndexOf('"', idx + 1);
+                        if (end > idx)
+                            info.Version = ParseJavaVersion(output.Substring(idx + 1, end - idx - 1));
+                    }
+                }
+                finally
+                {
+                    p.Dispose();
                 }
             }
             catch
