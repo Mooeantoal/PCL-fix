@@ -636,6 +636,8 @@ Public Class FormMain
     ''' 是否可以向注册表储存尺寸改变信息。以此避免初始化时误储存。
     ''' </summary>
     Public IsSizeSaveable As Boolean = False
+    '圆角裁剪几何（PanForm.Clip 使用）；原以 x:Name 定义在 XAML，重构后改为代码内声明以保证可用
+    Private RectForm As New System.Windows.Media.RectangleGeometry()
     '1px 细边框相关状态（边框颜色取 DWM 强调色，各版本通用）
     Private _borderBrush As System.Windows.Media.Brush = Nothing
     Private _frameInit As Boolean = False
