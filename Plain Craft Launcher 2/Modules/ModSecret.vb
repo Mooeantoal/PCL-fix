@@ -142,7 +142,7 @@ Friend Module ModSecret
                 FrmMain.PanForm.Background = New MyColor(245, 245, 245)
             End If
             FrmMain.PanForm.Background.Freeze()
-            '亚克力标题栏：在主题刷新设完标题栏背景后调用，开启时把标题栏置透明以透出 DWM 亚克力
+            '刷新主题后重新应用亚克力：标题栏背景已在上面设好（保持渐变），此处重刷磨砂与挖洞遮罩以匹配新主题色
             FrmMain.ApplyAcrylic()
         End Sub)
     End Sub
