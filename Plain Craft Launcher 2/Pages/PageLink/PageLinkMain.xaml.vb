@@ -64,6 +64,11 @@ Public Class PageLinkMain
     Private Sub UpdatePanelVisibility() Handles Me.PageEnter
         FrmLinkMain.PanSelect.Visibility = If(LinkState = LinkStates.Waiting, Visibility.Visible, Visibility.Collapsed)
         FrmLinkMain.PanFinish.Visibility = If(LinkState = LinkStates.Finished, Visibility.Visible, Visibility.Collapsed)
+        '进入联机页时刷新本机局域网地址（换网络后保持最新）
+        If PanSelectDirect IsNot Nothing Then
+            TextDirectLocalIp.Text = GetLanIpv4()
+            UpdateDirectShare()
+        End If
     End Sub
 
 #End Region
@@ -154,6 +159,69 @@ Public Class PageLinkMain
         LastCode = Code
         ChangeState(LinkStates.Loading)
     End Sub
+#Region "局域网 / 直接连接 (B：不依赖服务器，完全离线可用)"
+
+    '获取本机非回环 IPv4 地址（优先局域网地址），失败回退 127.0.0.1
+    Private Shared Function GetLanIpv4() As String
+        Try
+            Dim Entry = System.Net.Dns.GetHostEntry(System.Net.Dns.GetHostName())
+            For Each Ip In Entry.AddressList
+                If Ip.AddressFamily = AddressFamily.InterNetwork AndAlso
+                   Not System.Net.IPAddress.IsLoopback(Ip) AndAlso
+                   Not Ip.ToString().StartsWith("169.254.") Then
+                    Return Ip.ToString()
+                End If
+            Next
+        Catch ex As Exception
+            Logger.Warn(ex, "获取本机局域网 IP 失败")
+        End Try
+        Return "127.0.0.1"
+    End Function
+
+    Private Sub PanSelectDirect_Loaded() Handles PanSelectDirect.Loaded
+        TextDirectLocalIp.Text = GetLanIpv4()
+        UpdateDirectShare()
+    End Sub
+
+    Private Sub TextDirectPort_TextChanged() Handles TextDirectPort.TextChanged
+        UpdateDirectShare()
+    End Sub
+
+    Private Sub UpdateDirectShare()
+        Dim Port = TextDirectPort.Text.Trim()
+        LabDirectShare.Text = If(Port.Length = 0, "填写端口后生成可分享的地址", $"可分享地址：{TextDirectLocalIp.Text}:{Port}")
+    End Sub
+
+    Private Sub BtnDirectCopy_Click() Handles BtnDirectCopy.Click
+        Dim Addr = LabDirectShare.Text.Replace("可分享地址：", "").Trim()
+        If Addr.Length = 0 OrElse Not Addr.Contains(":") Then
+            Hint("请先填写局域网端口", HintType.Red) : Return
+        End If
+        ClipboardSet(Addr, False)
+        Hint("已复制：" & Addr, HintType.Green)
+    End Sub
+
+    Private Sub BtnDirectConnect_Click() Handles BtnDirectConnect.Click
+        Dim Remote = TextDirectRemote.Text.Trim()
+        If Not Remote.Contains(":") Then
+            Hint("请输入对方地址（格式 IP:端口）", HintType.Red) : Return
+        End If
+        Dim Parts = Remote.Split(":"c)
+        Dim PortNum As Integer
+        If Parts.Length <> 2 OrElse Not Integer.TryParse(Parts(1), PortNum) Then
+            Hint("地址格式不正确，应为 IP:端口", HintType.Red) : Return
+        End If
+        If McInstanceSelected Is Nothing Then
+            Hint("请先在启动页选择一个游戏版本", HintType.Red) : Return
+        End If
+        '写入自动进入服务器设置，并启动当前实例（ModLaunch 会据此 --quickPlayMultiplayer / --server 直连）
+        Settings.Set("VersionServerEnter", Remote, McInstanceSelected)
+        Hint("正在启动并连接 " & Remote, HintType.Blue)
+        McLaunchStart()
+    End Sub
+
+#End Region
+
     Public Shared Function ValidateCodeFormat(Code As String) As String
         If Code Is Nothing Then Return "邀请码为空！"
         Code = FixCodeFormat(Code)
