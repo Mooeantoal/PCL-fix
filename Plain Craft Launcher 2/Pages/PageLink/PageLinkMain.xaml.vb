@@ -482,6 +482,27 @@ Public Class PageLinkMain
     ''' </summary>
     Private NetworkName As String, NetworkSecret As String
 
+    '开源版联机配置：替代 PCL 官方 LinkConfig，改用 EasyTier 公开发布与公共节点
+    Private Const LinkEasyTierRelease As String = "v2.7.0"
+    Private Shared ReadOnly LinkConfig As JObject = BuildLinkConfig()
+
+    Private Shared Function BuildLinkConfig() As JObject
+        Dim Cfg As New JObject
+        Cfg.Add("EasyTierVersion", 20700)
+        Cfg.Add("Downloads", New JArray From {
+            $"https://github.com/EasyTier/EasyTier/releases/download/{LinkEasyTierRelease}/easytier-windows-{{arch}}-{LinkEasyTierRelease}.zip",
+            $"https://ghproxy.net/https://github.com/EasyTier/EasyTier/releases/download/{LinkEasyTierRelease}/easytier-windows-{{arch}}-{LinkEasyTierRelease}.zip"
+        })
+        Cfg.Add("Argument", "")
+        Cfg.Add("DiscoverPeerId", 0)
+        Cfg.Add("DiscoverPeer", "")
+        Cfg.Add("PeersBlackList", New JArray)
+        Cfg.Add("RandomPeer", 2)
+        Cfg.Add("Peers", New JArray)
+        Cfg.Add("MandatoryPeers", New JArray)
+        Return Cfg
+    End Function
+
 #Region "加载"
 
     Private WithEvents LinkLoader As New LoaderCombo(Of Integer)("联机", {
@@ -493,17 +514,12 @@ Public Class PageLinkMain
 
     '1. 获取服务器配置
     Private Sub InitConfig(Task As LoaderTask(Of Integer, Integer))
-        UpdateLoadingPage("正在联网获取配置……", "联网获取配置")
-        If VersionBranchMain <> "Official" Then
-            Throw New Exception($"$开源版无法联网获取配置。{vbCrLf}你可以在 PCL 官方版的缓存文件夹下查看 ServerConfig 的当前内容， 并在代码中进行相应修改。")
-        End If
-        ServerLoader.WaitForExit(LoaderToSyncProgress:=Task)
-        If ServerConfig Is Nothing Then Throw New Exception("无法从服务器获取配置")
-        '检查是否已禁用联机功能
-        Dim DisableReason = ServerConfig("Link")?("DisableReason2")?.ToString
+        UpdateLoadingPage("正在准备联机配置……", "准备联机配置")
+        '开源版不再依赖 PCL 官方服务器（ServerConfig），直接使用本地默认配置 LinkConfig
+        Dim DisableReason = LinkConfig?("DisableReason2")?.ToString
         If Not String.IsNullOrEmpty(DisableReason) Then Throw New Exception("$" & DisableReason) 'TODO: 可能不会显示错误原因？
-        If CType(ServerConfig("Link"), JObject).ContainsKey("MinVersionCode") AndAlso
-           VersionCode < ServerConfig("Link")("MinVersionCode").ToObject(Of Integer) Then
+        If CType(LinkConfig, JObject).ContainsKey("MinVersionCode") AndAlso
+           VersionCode < LinkConfig("MinVersionCode").ToObject(Of Integer) Then
             Throw New Exception("$你的 PCL 版本太老了，请在更新 PCL 之后再联机！")
         End If
     End Sub
@@ -529,17 +545,16 @@ Public Class PageLinkMain
         Telemetry("联机开始")
         '检查 EasyTier 版本
         UpdateLoadingPage("正在检查联机模块版本……", "检查联机模块版本")
-        If Not (FileUtils.Exists(PathEasyTier & "联机模块 CLI.exe") AndAlso FileUtils.Exists(PathEasyTier & "联机模块.exe") AndAlso
-                FileUtils.Exists(PathEasyTier & "Packet.dll")) Then
+        If Not (FileUtils.Exists(PathEasyTier & "联机模块 CLI.exe") AndAlso FileUtils.Exists(PathEasyTier & "联机模块.exe")) Then
             Settings.Set("LinkEasyTierVersion", -1)
         End If
         Dim LocalVersion As Integer = Settings.Get(Of Integer)("LinkEasyTierVersion")
-        ServerVersion = ServerConfig("Link")("EasyTierVersion")
+        ServerVersion = LinkConfig("EasyTierVersion")
         Dim RequiredFiles As New List(Of NetFile)
         Logger.Info($"EasyTier 本地版本：{LocalVersion}，需求版本：{ServerVersion}")
         If LocalVersion < ServerVersion Then
             RequiredFiles.Add(New NetFile(
-                ServerConfig("Link")("Downloads").Select(Function(UrlEntry) UrlEntry.ToString.Replace("{arch}", Architecture)),
+                LinkConfig("Downloads").Select(Function(UrlEntry) UrlEntry.ToString.Replace("{arch}", Architecture)),
                 PathEasyTier & "EasyTier.zip",
                 New FileChecker With {.MinSize = 1024 * 1024 * 2}))
         End If
@@ -553,11 +568,13 @@ Public Class PageLinkMain
         '解压文件
         UpdateLoadingPage("正在解压联机模块……", "解压联机模块")
         If FileUtils.Exists(PathEasyTier & "EasyTier.zip") Then
-            '解压
+            '解压（兼容 zip 内含顶层文件夹与平铺两种情况）
             Dim ExtractPath As String = RequestTaskTempFolder()
-            'FileUtils.ExtractToDirectory(PathEasyTier & "EasyTier.zip", ExtractPath,
-            '    progressHandler:=Sub(Percentage) Task.Progress = Percentage * 0.05)
-            DirectoryUtils.Copy(DirectoryUtils.EnumerateDirectories(ExtractPath, True).First, PathEasyTier)
+            FileUtils.ExtractToDirectory(PathEasyTier & "EasyTier.zip", ExtractPath,
+                progressHandler:=Sub(Percentage) Task.Progress = Percentage * 0.05)
+            Dim SubDirs = DirectoryUtils.EnumerateDirectories(ExtractPath, True).ToList()
+            Dim SourceDir As String = If(SubDirs.Count = 1, SubDirs(0), ExtractPath)
+            DirectoryUtils.Copy(SourceDir, PathEasyTier)
             '重命名
             FileUtils.Move(PathEasyTier & "easytier-core.exe", PathEasyTier & "联机模块.exe")
             FileUtils.Move(PathEasyTier & "easytier-cli.exe", PathEasyTier & "联机模块 CLI.exe")
@@ -589,7 +606,7 @@ Public Class PageLinkMain
         RPCPort = FreePorts(1)
         Dim ListenersPort As Integer = FreePorts(2) '它会占用【当前、当前 +1、当前 +2】共三个端口
         '获取启动参数
-        Dim Arguments As String = ServerConfig("Link")("Argument")
+        Dim Arguments As String = LinkConfig("Argument")
         Arguments += $" --network-name={NetworkName} --network-secret={NetworkSecret} --listeners {ListenersPort} --rpc-portal {RPCPort} --private-mode true"
         Dim HostName = If(IsServerSide, "Server-", "Client-") & Identify.GetStableHashCode().ConvertRadix(36).TrimStart("-"c).EnsureLength("0", 6)
         If IsServerSide Then
@@ -674,8 +691,8 @@ Public Class PageLinkMain
     ''' </summary>
     Private Function GetTargetPeers() As List(Of String)
         Dim FinalPeers As New List(Of String), FinalDiscoverID As Integer = -1
-        Dim FallbackDiscoverID = ServerConfig("Link")("DiscoverPeerId").ToObject(Of Integer)
-        Dim FallbackDiscoverAddress As String = ServerConfig("Link")("DiscoverPeer").ToString()
+        Dim FallbackDiscoverID = LinkConfig("DiscoverPeerId").ToObject(Of Integer)
+        Dim FallbackDiscoverAddress As String = LinkConfig("DiscoverPeer").ToString()
         Try
             '从 API 获取节点列表
             Dim RawNodes As JObject
@@ -689,7 +706,7 @@ Public Class PageLinkMain
             End Try
             '分析节点列表
             Dim Nodes As New List(Of JObject) '负载会添加在 load 字段上
-            Dim BlackList As List(Of String) = ServerConfig("Link")("PeersBlackList").Select(Function(p) p.ToString).ToList()
+            Dim BlackList As List(Of String) = LinkConfig("PeersBlackList").Select(Function(p) p.ToString).ToList()
             For Each Node As JObject In RawNodes("data")("items")
                 '状态检查
                 Dim ID = Node("id").ToObject(Of Integer)
@@ -735,7 +752,7 @@ ForcedPass:
             Logger.Info($"发现节点：{SelectedDiscoverNode("address")} (ID: {FinalDiscoverID})")
             '选取中继节点
             If ModeDebug OrElse Not IsServerSide Then '房主只连接发现节点，不连接中继节点
-                Dim RelayCount As Integer = ServerConfig("Link")("RandomPeer").ToObject(Of Integer)
+                Dim RelayCount As Integer = LinkConfig("RandomPeer").ToObject(Of Integer)
                 Dim RelayNodes = Nodes.Where(Function(n) n("allow_relay").ToObject(Of Boolean)).ToList()
                 If RelayNodes.Count < RelayCount Then Throw New Exception($"可用的中继节点数量不足，需要 {RelayCount} 个，实际 {RelayNodes.Count} 个")
                 FinalPeers.AddRange(RelayNodes.Take(RelayCount).Select(Function(n) n("address").ToString()))
@@ -743,19 +760,19 @@ ForcedPass:
         Catch ex As Exception
             ex.ThrowIfCanceled()
             Logger.Error(ex, "获取节点列表失败，联机质量可能受到影响", LogBehavior.Toast)
-            FinalPeers.AddRange(ServerConfig("Link")("Peers").Select(Function(p) p.ToString))
-            If FinalDiscoverID <= 0 Then
+            FinalPeers.AddRange(LinkConfig("Peers").Select(Function(p) p.ToString))
+            If FinalDiscoverID <= 0 AndAlso Not String.IsNullOrEmpty(FallbackDiscoverAddress) Then
                 FinalPeers.Add(FallbackDiscoverAddress)
                 FinalDiscoverID = FallbackDiscoverID
             End If
         End Try
         '版本 1 兼容
-        If CType(ServerConfig("Link"), JObject).ContainsKey("EnableForcedPeer") Then
+        If CType(LinkConfig, JObject).ContainsKey("EnableForcedPeer") Then
             FinalPeers.Add("tcp://mc1.easytier.cn:55558")
             If FinalDiscoverID <= 0 Then FinalDiscoverID = 94
         End If
         '强制添加的节点
-        FinalPeers.AddRange(ServerConfig("Link")("MandatoryPeers").Select(Function(p) p.ToString))
+        FinalPeers.AddRange(LinkConfig("MandatoryPeers").Select(Function(p) p.ToString))
         '结束
         DiscoverNodeID = FinalDiscoverID
         Return FinalPeers.Distinct.ToList
