@@ -648,6 +648,8 @@ Public Class FormMain
     Private _clipInit As Boolean = False
     Private _clipW As Double = 0, _clipH As Double = 0
     Private _clipState As WindowState = WindowState.Normal
+    '标题栏导航滑动指示条是否已初始化（仅执行一次）
+    Private _titleNavInit As Boolean = False
     Private Sub FormMain_SizeChanged() Handles Me.SizeChanged, Me.Loaded
         If IsSizeSaveable Then
             Settings.Set("WindowHeight", Height)
@@ -662,6 +664,18 @@ Public Class FormMain
         PanMain.Height = Math.Max(0, PanForm.Height - PanTitle.ActualHeight)
         '尺寸变化（含 Aero Snap 吸附到半屏/1/4 屏）时同步刷新圆角：分屏态取消圆角、普通浮动态保留圆角。
         ApplyWindowChrome()
+        '标题栏导航：一次性关闭 5 个按钮自带选中背景（改用滑动指示条）
+        If Not _titleNavInit Then
+            _titleNavInit = True
+            For Each b In {BtnTitleSelect0, BtnTitleSelect1, BtnTitleSelect2, BtnTitleSelect3, BtnTitleSelect4}
+                b.ShowCheckedBackground = False
+            Next
+        End If
+        '窗口尺寸变化（分屏/缩放）时强制布局后重新定位指示条
+        UpdateLayout()
+        For Each b In {BtnTitleSelect0, BtnTitleSelect1, BtnTitleSelect2, BtnTitleSelect3, BtnTitleSelect4}
+            If b.Checked Then UpdateTitleSelectIndicator(b, False)
+        Next
     End Sub
 
     '最小化
@@ -1703,6 +1717,28 @@ Public Class FormMain
         If IsChangingPage Then Return
         PageChangeActual(Val(sender.Tag))
     End Sub
+    '标题栏导航滑动指示条：把 RectTitleSelect（圆角白条）平滑移动到选中项下方。
+    Private Sub UpdateTitleSelectIndicator(target As MyRadioButton, Optional animate As Boolean = True)
+        If RectTitleSelect Is Nothing OrElse target Is Nothing OrElse Not target.IsLoaded Then Return
+        Dim pt = target.TransformToVisual(PanTitleSelect).Transform(New System.Windows.Point(0, 0))
+        Dim x = pt.X
+        Dim w = target.ActualWidth
+        If w <= 0 Then
+            RunInUi(Sub() UpdateTitleSelectIndicator(target, animate), True)
+            Return
+        End If
+        If animate Then
+            AniStop("FrmMain TitleSelect Indicator")
+            Dim curX = If(TypeOf RectTitleSelect.RenderTransform Is System.Windows.Media.TranslateTransform, CType(RectTitleSelect.RenderTransform, System.Windows.Media.TranslateTransform).X, 0)
+            AniStart({
+                AaTranslateX(RectTitleSelect, x - curX, 250, 0, New AniEaseOutFluent),
+                AaWidth(RectTitleSelect, w - RectTitleSelect.Width, 250, 0, New AniEaseOutFluent)
+            }, "FrmMain TitleSelect Indicator")
+        Else
+            RectTitleSelect.RenderTransform = New System.Windows.Media.TranslateTransform(x, 0)
+            RectTitleSelect.Width = w
+        End If
+    End Sub
     ''' <summary>
     ''' 通过点击返回按钮或手动触发返回来改变页面。
     ''' </summary>
@@ -1771,6 +1807,14 @@ Public Class FormMain
 #Region "实际更改页面框架 UI"
             PageLast = PageCurrent
             PageCurrent = Stack
+            '更新标题栏导航滑动指示条（仅顶级页面切换时移动，子页面保持原指示）
+            Select Case Stack.Page
+                Case PageType.Launch : UpdateTitleSelectIndicator(BtnTitleSelect0)
+                Case PageType.Download : UpdateTitleSelectIndicator(BtnTitleSelect1)
+                Case PageType.Link : UpdateTitleSelectIndicator(BtnTitleSelect2)
+                Case PageType.Setup : UpdateTitleSelectIndicator(BtnTitleSelect3)
+                Case PageType.Other : UpdateTitleSelectIndicator(BtnTitleSelect4)
+            End Select
             Select Case Stack.Page
                 Case PageType.Launch '启动
                     PageChangeAnim(FrmLaunchLeft, FrmLaunchRight)

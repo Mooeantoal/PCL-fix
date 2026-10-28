@@ -137,6 +137,16 @@ Public Class MyRadioButton
             RefreshColor()
         End Set
     End Property '颜色类别
+    Private _ShowCheckedBackground As Boolean = True
+    Public Property ShowCheckedBackground As Boolean
+        Get
+            Return _ShowCheckedBackground
+        End Get
+        Set(value As Boolean)
+            _ShowCheckedBackground = value
+            RefreshColor()
+        End Set
+    End Property '勾选时是否显示背景高亮（标题栏导航改用滑动指示条时设为 False）
 
     '点击事件
 
@@ -178,7 +188,7 @@ Public Class MyRadioButton
                                          AaColor(ShapeLogo, Shapes.Path.FillProperty, "ColorBrush3", AnimationTimeOfCheck),
                                          AaColor(LabText, TextBlock.ForegroundProperty, "ColorBrush3", AnimationTimeOfCheck)
                                     }, "MyRadioButton Checked " & Uuid)
-                            AniStart(AaColor(Me, BackgroundProperty, New MyColor(255, 255, 255) - Background, AnimationTimeOfCheck), "MyRadioButton Color " & Uuid)
+                            AniStart(AaColor(Me, BackgroundProperty, If(_ShowCheckedBackground, New MyColor(255, 255, 255) - Background, ColorSemiTransparent - Background), AnimationTimeOfCheck), "MyRadioButton Color " & Uuid)
                         ElseIf IsMouseDown Then
                             '按下
                             AniStart(AaColor(Me, BackgroundProperty, New MyColor(120, Color8) - Background, 60), "MyRadioButton Color " & Uuid)
@@ -233,7 +243,7 @@ Public Class MyRadioButton
                 Select Case ColorType
                     Case ColorState.White
                         If Checked Then
-                            Background = New MyColor(255, 255, 255)
+                            Background = If(_ShowCheckedBackground, New MyColor(255, 255, 255), ColorSemiTransparent)
                             ShapeLogo.SetResourceReference(Shapes.Path.FillProperty, "ColorBrush3")
                             LabText.SetResourceReference(TextBlock.ForegroundProperty, "ColorBrush3")
                         Else
