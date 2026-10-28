@@ -589,7 +589,7 @@ Public Class PageLinkMain
             '解压（兼容 zip 内含顶层文件夹与平铺两种情况）
             Dim ExtractPath As String = RequestTaskTempFolder()
             FileUtils.ExtractToDirectory(PathEasyTier & "EasyTier.zip", ExtractPath,
-                progressHandler:=Sub(Percentage) Task.Progress = Percentage * 0.05)
+                Task.CreateCancellationToken(), Task.CreateSyncProgressProvider(0, 0.05))
             Dim SubDirs = DirectoryUtils.EnumerateDirectories(ExtractPath, True).ToList()
             Dim SourceDir As String = If(SubDirs.Count = 1, SubDirs(0), ExtractPath)
             DirectoryUtils.Copy(SourceDir, PathEasyTier)
