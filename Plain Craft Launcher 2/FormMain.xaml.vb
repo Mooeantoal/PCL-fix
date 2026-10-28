@@ -671,6 +671,13 @@ Public Class FormMain
                 b.ShowCheckedBackground = False
             Next
         End If
+        '窗口宽度<640 时收起导航文字仅留图标
+        Dim wShown = If(Double.IsNaN(Me.Width), 9999, Me.Width)
+        Dim narrow = wShown < 640
+        For Each b In {BtnTitleSelect0, BtnTitleSelect1, BtnTitleSelect2, BtnTitleSelect3, BtnTitleSelect4}
+            Dim lab = TryCast(b.FindName("LabText"), System.Windows.Controls.TextBlock)
+            If lab IsNot Nothing Then lab.Visibility = If(narrow, System.Windows.Visibility.Collapsed, System.Windows.Visibility.Visible)
+        Next
         '窗口尺寸变化（分屏/缩放）时强制布局后重新定位指示条
         UpdateLayout()
         For Each b In {BtnTitleSelect0, BtnTitleSelect1, BtnTitleSelect2, BtnTitleSelect3, BtnTitleSelect4}
