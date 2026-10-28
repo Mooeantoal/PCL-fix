@@ -50,6 +50,19 @@
                     </StackPanel>
                 </Grid>
             </local:MyCard>
+            <local:MyCard Margin="0,0,0,15" Title="开源版联机模块（去服务器依赖）">
+                <StackPanel Margin="25,40,25,22">
+                    <TextBlock Text="联机模块版本（EasyTier 发布标签，例如 v2.7.0）" FontSize="13" Foreground="{StaticResource ColorBrushGray2}" />
+                    <local:MyTextBox x:Name="TextModuleRelease" local:SettingService.Key="LinkModuleRelease" Margin="0,4,0,0"
+                        ToolTip="改动后会在下次启动联机时重新下载对应版本的联机模块（GitHub 主源 + ghproxy 镜像备用）。" />
+                    <TextBlock Margin="0,14,0,0" Text="节点来源（主，用于获取公共中继 / 发现节点列表）" FontSize="13" Foreground="{StaticResource ColorBrushGray2}" />
+                    <local:MyTextBox x:Name="TextNodeApi" local:SettingService.Key="LinkNodeApiUrl" Margin="0,4,0,0" />
+                    <TextBlock Margin="0,14,0,0" Text="节点来源（备用，主源失败时回退）" FontSize="13" Foreground="{StaticResource ColorBrushGray2}" />
+                    <local:MyTextBox x:Name="TextNodeCdn" local:SettingService.Key="LinkNodeCdnUrl" Margin="0,4,0,0" />
+                    <TextBlock Margin="0,10,0,0" FontSize="12" Foreground="{StaticResource ColorBrushGray3}" TextWrapping="Wrap"
+                        Text="以上设置替代 PCL 官方 ServerConfig。版本号改动后，联机模块会在下次启动联机时自动重新下载。" />
+                </StackPanel>
+            </local:MyCard>
         </StackPanel>
     </local:MyScrollViewer>
 </local:MyPageRight>

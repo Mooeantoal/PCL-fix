@@ -482,17 +482,12 @@ Public Class PageLinkMain
     ''' </summary>
     Private NetworkName As String, NetworkSecret As String
 
-    '开源版联机配置：替代 PCL 官方 LinkConfig，改用 EasyTier 公开发布与公共节点
-    Private Const LinkEasyTierRelease As String = "v2.7.0"
+    '开源版联机配置：替代 PCL 官方 LinkConfig，改用 EasyTier 公开发布与公共节点。
+    '版本号与节点来源改为从设置项（LinkModuleRelease / LinkNodeApiUrl / LinkNodeCdnUrl）读取，便于自行修改。
     Private Shared ReadOnly LinkConfig As JObject = BuildLinkConfig()
 
     Private Shared Function BuildLinkConfig() As JObject
         Dim Cfg As New JObject
-        Cfg.Add("EasyTierVersion", 20700)
-        Cfg.Add("Downloads", New JArray From {
-            $"https://github.com/EasyTier/EasyTier/releases/download/{LinkEasyTierRelease}/easytier-windows-{{arch}}-{LinkEasyTierRelease}.zip",
-            $"https://ghproxy.net/https://github.com/EasyTier/EasyTier/releases/download/{LinkEasyTierRelease}/easytier-windows-{{arch}}-{LinkEasyTierRelease}.zip"
-        })
         Cfg.Add("Argument", "")
         Cfg.Add("DiscoverPeerId", 0)
         Cfg.Add("DiscoverPeer", "")
@@ -501,6 +496,27 @@ Public Class PageLinkMain
         Cfg.Add("Peers", New JArray)
         Cfg.Add("MandatoryPeers", New JArray)
         Return Cfg
+    End Function
+
+    '将版本号字符串（如 v2.7.0）转换为用于本地版本比对的整数（如 20700）
+    Private Shared Function ParseEasyTierVersion(Release As String) As Integer
+        Try
+            Dim Nums = Release.TrimStart("v"c).Split("."c)
+            Dim Major = Integer.Parse(Nums(0)), Minor = Integer.Parse(Nums(1)), Patch = If(Nums.Length > 2, Integer.Parse(Nums(2)), 0)
+            Return Major * 10000 + Minor * 100 + Patch
+        Catch
+            Return 0
+        End Try
+    End Function
+
+    '根据当前设置的版本号与 CPU 架构生成下载地址（GitHub 主源 + ghproxy 镜像备用）
+    Private Shared Function GetEasyTierDownloadUrls(Architecture As String) As IEnumerable(Of String)
+        Dim Release As String = Settings.Get(Of String)("LinkModuleRelease")
+        If String.IsNullOrWhiteSpace(Release) Then Release = "v2.7.0"
+        Return {
+            $"https://github.com/EasyTier/EasyTier/releases/download/{Release}/easytier-windows-{Architecture}-{Release}.zip",
+            $"https://ghproxy.net/https://github.com/EasyTier/EasyTier/releases/download/{Release}/easytier-windows-{Architecture}-{Release}.zip"
+        }
     End Function
 
 #Region "加载"
@@ -549,12 +565,14 @@ Public Class PageLinkMain
             Settings.Set("LinkEasyTierVersion", -1)
         End If
         Dim LocalVersion As Integer = Settings.Get(Of Integer)("LinkEasyTierVersion")
-        ServerVersion = LinkConfig("EasyTierVersion")
+        Dim Release As String = Settings.Get(Of String)("LinkModuleRelease")
+        If String.IsNullOrWhiteSpace(Release) Then Release = "v2.7.0"
+        ServerVersion = ParseEasyTierVersion(Release)
         Dim RequiredFiles As New List(Of NetFile)
-        Logger.Info($"EasyTier 本地版本：{LocalVersion}，需求版本：{ServerVersion}")
+        Logger.Info($"EasyTier 本地版本：{LocalVersion}，需求版本：{ServerVersion}（{Release}）")
         If LocalVersion < ServerVersion Then
             RequiredFiles.Add(New NetFile(
-                LinkConfig("Downloads").Select(Function(UrlEntry) UrlEntry.ToString.Replace("{arch}", Architecture)),
+                GetEasyTierDownloadUrls(Architecture),
                 PathEasyTier & "EasyTier.zip",
                 New FileChecker With {.MinSize = 1024 * 1024 * 2}))
         End If
@@ -698,10 +716,10 @@ Public Class PageLinkMain
             Dim RawNodes As JObject
             Dim IsFallbackRawList As Boolean = False
             Try
-                RawNodes = NetRequestByClient("https://uptime.easytier.cn/api/nodes?page=1&per_page=1000", RequireJson:=True).DeserializeJson()
+                RawNodes = NetRequestByClient(Settings.Get(Of String)("LinkNodeApiUrl"), RequireJson:=True).DeserializeJson()
             Catch exx As Exception
                 Logger.Warn(exx, "从源站获取节点列表失败，将使用 CDN 缓存")
-                RawNodes = NetRequestByClientRetry("https://easytier.meloong.com/?page=1&per_page=1000", RequireJson:=True).DeserializeJson()
+                RawNodes = NetRequestByClientRetry(Settings.Get(Of String)("LinkNodeCdnUrl"), RequireJson:=True).DeserializeJson()
                 IsFallbackRawList = True
             End Try
             '分析节点列表
