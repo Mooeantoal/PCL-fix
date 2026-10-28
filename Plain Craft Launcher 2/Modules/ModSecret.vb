@@ -142,8 +142,8 @@ Friend Module ModSecret
                 FrmMain.PanForm.Background = New MyColor(245, 245, 245)
             End If
             FrmMain.PanForm.Background.Freeze()
-            '刷新主题后重新应用亚克力：标题栏背景已在上面设好（保持渐变），此处重刷磨砂与挖洞遮罩以匹配新主题色
-            FrmMain.ApplyAcrylic()
+            '刷新主题后重新应用左白右浅蓝的分区配色
+            FrmMain.RefreshPanelBrushes()
         End Sub)
     End Sub
     Friend Sub ThemeCheckAll(EffectSetup As Boolean)

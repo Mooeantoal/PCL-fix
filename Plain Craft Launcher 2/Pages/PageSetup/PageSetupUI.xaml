@@ -143,7 +143,6 @@
                                         ToolTip="高度的模糊会严重掉帧，请谨慎。&#13;不建议在制作整合包时开启模糊，以确保 PCL 在低性能电脑上可以流畅运行。" />
                     </Grid>
                     <local:MyCheckBox local:SettingService.Key="UiBackgroundColorful" Text="叠加彩色背景" Margin="-1,0,0,8" Height="22" />
-                    <local:MyCheckBox local:SettingService.Key="UiAcrylic" Text="亚克力毛玻璃（侧栏与首页）" Margin="-1,0,0,8" Height="22" ToolTip="仅 Win10 1803 / Win11 支持：开启后窗口整体呈桌面磨砂，侧栏与首页板块透出磨砂效果；标题栏保持渐变、其余区域仍显示背景图。&#13;低性能电脑可能掉帧，如遇卡顿请关闭。" />
                     <Grid Height="35" Margin="0,2,0,0">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="Auto" SharedSizeGroup="Button" />
