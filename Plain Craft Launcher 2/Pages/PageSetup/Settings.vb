@@ -327,7 +327,9 @@ Public Class Settings
         Dim Value = Entry.GetCache(Instance)
         If Value IsNot Nothing Then Return Value
         '对部分设置强制赋值
-        Static ForcedSettings As New Dictionary(Of String, Object) From {}
+        Static ForcedSettings As New Dictionary(Of String, Object) From {
+            {"UiHiddenSetupLink", True}
+        }
         Dim ForcedSetting As Object = Nothing
         If ForcedSettings.TryGetValue(Key, ForcedSetting) Then
             Entry.Set(ForcedSetting, Instance)

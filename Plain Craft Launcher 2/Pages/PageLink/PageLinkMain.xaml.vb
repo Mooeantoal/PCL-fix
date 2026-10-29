@@ -69,6 +69,14 @@ Public Class PageLinkMain
             TextDirectLocalIp.Text = GetLanIpv4()
             UpdateDirectShare()
         End If
+        '自动加入指定房间
+        If AutoJoinCode IsNot Nothing AndAlso LinkState = LinkStates.Waiting Then
+            Dim Code = AutoJoinCode
+            AutoJoinCode = Nothing
+            JoinInternal(Code)
+        End If
+        '加载联机设置项（版本 / 节点来源 / 模式 / 自定义节点）
+        SettingService.RefreshSettings(Me)
     End Sub
 
 #End Region
@@ -97,7 +105,7 @@ Public Class PageLinkMain
     '===============================
 
     '创建
-    Private Sub Create_MouseLeftButtonUp() Handles PanSelectCreate.MouseLeftButtonUp
+    Private Sub StartCreate()
         '输入端口号
         Dim Port As String = MyMsgBoxInput("输入端口", $"在单人游戏的暂停菜单选择 {vbLQ}对局域网开放{vbRQ}，然后输入端口数字。{vbCrLf}甚至可以输入其他游戏的端口……嗯……",
             ValidateRules:=New Collection(Of Validate) From {New ValidateInteger(1024, 65535)},
@@ -127,12 +135,12 @@ Public Class PageLinkMain
     ''' <summary>
     ''' 输入邀请码，切换到联机页并立即加入房间。
     ''' </summary>
-    Public Shared Sub Join() Handles PanSelectJoin.MouseLeftButtonUp
+    Public Sub StartJoin()
         Dim Code As String = MyMsgBoxInput("输入邀请码", "输入房主发给你的邀请码。",
             HintText:=If(String.IsNullOrEmpty(LastCode), "", "使用上一次的邀请码"))
         If Not String.IsNullOrEmpty(LastCode) AndAlso Code IsNot Nothing AndAlso Code = "" Then Code = LastCode
         If Code Is Nothing Then Return
-        Join(Code)
+        JoinInternal(Code)
     End Sub
     Public Sub JoinInternal(Code As String)
         If Code Is Nothing Then Return
@@ -220,6 +228,20 @@ Public Class PageLinkMain
         McLaunchStart()
     End Sub
 
+    '由「联机方式」选择器启动所选模式
+    Private Sub BtnLinkStart_Click() Handles BtnLinkStart.Click
+        Select Case ComboLinkMode.SelectedIndex
+            Case 0 : StartCreate()
+            Case 1 : StartJoin()
+            Case 2 :
+                If TextDirectRemote.Text.Trim().Contains(":") Then
+                    BtnDirectConnect_Click()
+                Else
+                    Hint("请在下方「局域网 / 直接连接」填写对方地址（IP:端口）后点击「启动游戏并连接」", HintType.Blue)
+                End If
+        End Select
+    End Sub
+
 #End Region
 
     Public Shared Function ValidateCodeFormat(Code As String) As String
@@ -267,11 +289,6 @@ Public Class PageLinkMain
     End Sub
     '在进入页面时自动尝试加入房间
     Private Shared AutoJoinCode As String = Nothing
-    Private Sub PanSelectJoin_Loaded() Handles PanSelectJoin.Loaded
-        If AutoJoinCode Is Nothing Then Return
-        If LinkState = LinkStates.Waiting Then JoinInternal(AutoJoinCode)
-        AutoJoinCode = Nothing
-    End Sub
 
 #End Region
 

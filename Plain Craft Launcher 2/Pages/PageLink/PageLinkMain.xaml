@@ -3,6 +3,7 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:local="clr-namespace:PCL" xmlns:d="http://schemas.microsoft.com/expression/blend/2008" xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" 
              mc:Ignorable="d" x:Class="PageLinkMain"
+             PanScroll="PanBack"
              d:DesignWidth="800" d:DesignHeight="800">
     <Grid>
         <Grid x:Name="PanLoad">
@@ -54,97 +55,97 @@
         </Grid>
         <Grid x:Name="PanContent">
             <Grid x:Name="PanSelect">
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="1*" />
-                    <ColumnDefinition Width="Auto" />
-                    <ColumnDefinition Width="1*" />
-                </Grid.ColumnDefinitions>
-                <Grid.RowDefinitions>
-                    <RowDefinition Height="1*" />
-                    <RowDefinition Height="Auto" />
-                    <RowDefinition Height="12" />
-                    <RowDefinition Height="Auto" />
-                    <RowDefinition Height="12" />
-                    <RowDefinition Height="Auto" />
-                    <RowDefinition Height="1*" />
-                </Grid.RowDefinitions>
-                <local:MyCard x:Name="PanSelectCreate" Grid.Column="1" Grid.Row="1" CornerRadius="13" VerticalAlignment="Center">
-                    <Grid IsHitTestVisible="False">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="25" />
-                            <ColumnDefinition Width="Auto" />
-                            <ColumnDefinition Width="13" />
-                            <ColumnDefinition Width="1*" />
-                            <ColumnDefinition Width="Auto" />
-                        </Grid.ColumnDefinitions>
-                        <Grid.RowDefinitions>
-                            <RowDefinition Height="22" />
-                            <RowDefinition Height="Auto" />
-                            <RowDefinition Height="Auto" />
-                            <RowDefinition Height="12" />
-                        </Grid.RowDefinitions>
-                        <Path Grid.Column="1" Grid.Row="1" Height="26" Width="26" Margin="0,-1,0,0"
-                            Stretch="Uniform" Fill="{DynamicResource ColorBrush3}"
-                            Data="M384 128v192h256a64 64 0 0 1 64 64v256h192V128H384zM320 320V128a64 64 0 0 1 64-64h512a64 64 0 0 1 64 64v512a64 64 0 0 1-64 64h-192v192a64 64 0 0 1-64 64H128a64 64 0 0 1-64-64V384a64 64 0 0 1 64-64h192z m320 384H384a64 64 0 0 1-64-64V384H128v512h512v-192z m0-64V384H384v256h256z" />
-                        <TextBlock Grid.Column="3" Grid.ColumnSpan="3" Grid.Row="1"
-                            Text="创建房间" FontSize="20" Foreground="{DynamicResource ColorBrush3}" />
-                        <TextBlock Grid.Column="3" Grid.ColumnSpan="3" Grid.Row="2" Margin="1,10,30,10" 
-                            Text="邀请朋友加入你的单人游戏。"
-                            FontSize="15" LineHeight="19" MaxWidth="400" TextWrapping="Wrap" Foreground="{StaticResource ColorBrushGray3}" />
-                    </Grid>
-                </local:MyCard>
-                <local:MyCard x:Name="PanSelectJoin" Grid.Column="1" Grid.Row="3" CornerRadius="13" VerticalAlignment="Center">
-                    <Grid IsHitTestVisible="False">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="25" />
-                            <ColumnDefinition Width="Auto" />
-                            <ColumnDefinition Width="13" />
-                            <ColumnDefinition Width="1*" />
-                            <ColumnDefinition Width="Auto" />
-                        </Grid.ColumnDefinitions>
-                        <Grid.RowDefinitions>
-                            <RowDefinition Height="22" />
-                            <RowDefinition Height="Auto" />
-                            <RowDefinition Height="Auto" />
-                            <RowDefinition Height="12" />
-                        </Grid.RowDefinitions>
-                        <Path Grid.Column="1" Grid.Row="1" Height="26" Width="26" Margin="0,-1,0,0"
-                            Stretch="Uniform" Fill="{DynamicResource ColorBrush3}"
-                            Data="m399,355l-92.5,101.6c-13.7,13.7-10.6,36.4,4.6,47,13.7,9.1,30.3,7.6,41-4.5l127.4-138.1c16.7-18.2,18.2-47,0-66.8l-125.9-141.1c-12.1-13.7-34.9-15.2-47,0-12.1,12.1-12.1,31.9,0,44l92.5,98.6H28.8c-16.7,0-28.8,13.7-28.8,28.8s13.7,28.8,28.8,28.8h370.2v1.5ZM625.7,0H224.6c-44,0-78.9,34.9-78.9,78.9v101.6c0,15.2,12.1,27.3,27.3,27.3s27.3-12.1,27.3-27.3v-98.6c0-15.2,12.1-27.3,27.3-27.3h387.5c15.2,0,27.3,12.1,27.3,27.3v493c0,15.2-12.1,27.3-27.3,27.3H229.2c-15.2,0-27.3-12.1-27.3-27.3v-101.6c0-16.7-13.7-28.8-28.8-28.8s-28.8,13.7-28.8,28.8v98.6c0,44,34.9,78.9,78.9,78.9h407.2c44,0,67.9-34.9,67.9-78.9V78.9c-4.6-44-28.4-78.9-72.4-78.9Z" />
-                        <TextBlock Grid.Column="3" Grid.ColumnSpan="3" Grid.Row="1"
-                            Text="加入房间" FontSize="20" Foreground="{DynamicResource ColorBrush3}" />
-                        <TextBlock Grid.Column="3" Grid.ColumnSpan="3" Grid.Row="2" Margin="1,10,30,10" 
-                            Text="输入你收到的邀请码，加入朋友的房间。"
-                            FontSize="15" LineHeight="19" MaxWidth="400" TextWrapping="Wrap" Foreground="{StaticResource ColorBrushGray3}" />
-                    </Grid>
-                </local:MyCard>
-                <local:MyCard x:Name="PanSelectDirect" Grid.Column="1" Grid.Row="5" CornerRadius="13" VerticalAlignment="Center">
-                    <StackPanel Margin="25,22">
-                        <Grid>
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="Auto" />
-                                <ColumnDefinition Width="13" />
-                                <ColumnDefinition Width="1*" />
-                            </Grid.ColumnDefinitions>
-                            <Path Height="26" Width="26" Margin="0,-2,0,0" Stretch="Uniform" Fill="{DynamicResource ColorBrush3}"
-                                  Data="m399,355l-92.5,101.6c-13.7,13.7-10.6,36.4,4.6,47,13.7,9.1,30.3,7.6,41-4.5l127.4-138.1c16.7-18.2,18.2-47,0-66.8l-125.9-141.1c-12.1-13.7-34.9-15.2-47,0-12.1,12.1-12.1,31.9,0,44l92.5,98.6H28.8c-16.7,0-28.8,13.7-28.8,28.8s13.7,28.8,28.8,28.8h370.2v1.5ZM625.7,0H224.6c-44,0-78.9,34.9-78.9,78.9v101.6c0,15.2,12.1,27.3,27.3,27.3s27.3-12.1,27.3-27.3v-98.6c0-15.2,12.1-27.3,27.3-27.3h387.5c15.2,0,27.3,12.1,27.3,27.3v493c0,15.2-12.1,27.3-27.3,27.3H229.2c-15.2,0-27.3-12.1-27.3-27.3v-101.6c0-16.7-13.7-28.8-28.8-28.8s-28.8,13.7-28.8,28.8v98.6c0,44,34.9,78.9,78.9,78.9h407.2c44,0,67.9-34.9,67.9-78.9V78.9c-4.6-44-28.4-78.9-72.4-78.9Z" />
-                            <TextBlock Grid.Column="2" Text="局域网 / 直接连接" FontSize="20" Foreground="{DynamicResource ColorBrush3}" VerticalAlignment="Center" />
-                        </Grid>
-                        <TextBlock Margin="0,10,0,0" Text="同网络下直接连接，无需服务器，完全离线可用。" FontSize="15" LineHeight="19" MaxWidth="400" TextWrapping="Wrap" Foreground="{StaticResource ColorBrushGray3}" />
-                        <TextBlock Margin="0,14,0,0" Text="本机局域网地址（在游戏内「对局域网开放」后填写端口分享给好友）" FontSize="13" Foreground="{StaticResource ColorBrushGray2}" />
-                        <local:MyTextBox x:Name="TextDirectLocalIp" IsReadOnly="True" Margin="0,4,0,0" />
-                        <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
-                            <local:MyTextBox x:Name="TextDirectPort" HintText="局域网端口" Width="140" />
-                            <local:MyButton x:Name="BtnDirectCopy" Text="复制地址" Padding="13,8" Margin="8,0,0,0" ColorType="Highlight" />
-                        </StackPanel>
-                        <TextBlock x:Name="LabDirectShare" Margin="0,6,0,0" FontSize="13" Foreground="{StaticResource ColorBrushGray2}" />
-                        <TextBlock Margin="0,14,0,0" Text="对方地址（格式 IP:端口）" FontSize="13" Foreground="{StaticResource ColorBrushGray2}" />
-                        <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
-                            <local:MyTextBox x:Name="TextDirectRemote" HintText="例如 192.168.1.10:12345" Width="260" />
-                            <local:MyButton x:Name="BtnDirectConnect" Text="启动游戏并连接" Padding="13,8" Margin="8,0,0,0" ColorType="Highlight" />
-                        </StackPanel>
+                <local:MyScrollViewer x:Name="PanBack" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                    <StackPanel x:Name="PanMain" Margin="25,10" Grid.IsSharedSizeScope="True">
+                        <local:MyCard Margin="0,15" Title="联机方式">
+                            <StackPanel Margin="25,40,25,20">
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto" SharedSizeGroup="Name" />
+                                        <ColumnDefinition Width="1*" />
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock VerticalAlignment="Center" Text="方式" Margin="0,0,25,0" />
+                                    <local:MyComboBox x:Name="ComboLinkMode" Grid.Column="1">
+                                        <local:MyComboBoxItem Content="创建房间" IsSelected="True" ToolTip="邀请朋友加入你的单人游戏。" />
+                                        <local:MyComboBoxItem Content="加入房间" ToolTip="输入邀请码，加入朋友的房间。" />
+                                        <local:MyComboBoxItem Content="局域网 / 直接连接" ToolTip="同网络下直接连接，无需服务器，完全离线可用。" />
+                                    </local:MyComboBox>
+                                </Grid>
+                                <local:MyButton x:Name="BtnLinkStart" Text="启动联机" Margin="0,15,0,0" Padding="13,8" ColorType="Highlight" HorizontalAlignment="Left" />
+                            </StackPanel>
+                        </local:MyCard>
+                        <local:MyCard x:Name="PanSelectDirect" Margin="0,0,0,15" Title="局域网 / 直接连接">
+                            <StackPanel Margin="25,40,25,22">
+                                <TextBlock Text="本机局域网地址（在游戏内「对局域网开放」后填写端口分享给好友）" FontSize="13" Foreground="{StaticResource ColorBrushGray2}" />
+                                <local:MyTextBox x:Name="TextDirectLocalIp" IsReadOnly="True" Margin="0,4,0,0" />
+                                <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
+                                    <local:MyTextBox x:Name="TextDirectPort" HintText="局域网端口" Width="140" />
+                                    <local:MyButton x:Name="BtnDirectCopy" Text="复制地址" Padding="13,8" Margin="8,0,0,0" ColorType="Highlight" />
+                                </StackPanel>
+                                <TextBlock x:Name="LabDirectShare" Margin="0,6,0,0" FontSize="13" Foreground="{StaticResource ColorBrushGray2}" />
+                                <TextBlock Margin="0,14,0,0" Text="对方地址（格式 IP:端口）" FontSize="13" Foreground="{StaticResource ColorBrushGray2}" />
+                                <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
+                                    <local:MyTextBox x:Name="TextDirectRemote" HintText="例如 192.168.1.10:12345" Width="260" />
+                                    <local:MyButton x:Name="BtnDirectConnect" Text="启动游戏并连接" Padding="13,8" Margin="8,0,0,0" ColorType="Highlight" />
+                                </StackPanel>
+                            </StackPanel>
+                        </local:MyCard>
+                        <local:MyCard Margin="0,0,0,15" Title="连接选项">
+                            <StackPanel Margin="25,40,25,20">
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto" SharedSizeGroup="Name" />
+                                        <ColumnDefinition Width="1*" />
+                                        <ColumnDefinition Width="60" />
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock VerticalAlignment="Center" Text="模式" Margin="0,0,25,0" />
+                                    <local:MyComboBox x:Name="ComboLatencyMode" Grid.Column="1" Grid.ColumnSpan="2" local:SettingService.Key="LinkLatencyMode">
+                                        <local:MyComboBoxItem Content="优先直连" IsSelected="True" ToolTip="尽量不进行中转，而是 P2P 直连。" />
+                                        <local:MyComboBoxItem Content="优先低延迟" ToolTip="如果使用中转节点能降低延迟，就不进行直连。&#xa;不过，这会增加社区节点的负载……" />
+                                    </local:MyComboBox>
+                                </Grid>
+                            </StackPanel>
+                        </local:MyCard>
+                        <local:MyCard Margin="0,0,0,15" Title="高级设置" IsSwapped="True" CanSwap="True">
+                            <Grid Margin="25,40,25,22">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="1*" />
+                                </Grid.ColumnDefinitions>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="28" />
+                                    <RowDefinition Height="15" />
+                                    <RowDefinition Height="35" />
+                                </Grid.RowDefinitions>
+                                <TextBlock VerticalAlignment="Center" HorizontalAlignment="Left" Text="自定义节点" Margin="0,0,25,0" />
+                                <local:MyTextBox x:Name="TextCustomPeer" local:SettingService.Key="LinkCustomPeer" Grid.Column="1" MaxHeight="28" 
+                                    ToolTip="覆盖 PCL 所选择的节点，仅连接此处填写的节点。&#xa;如果你自己搭建了 EasyTier 节点，你可以用这个设置让 PCL 连接它。&#xa;&#xa;使用逗号分隔多个节点，例如：&#xa;tcp://public.easytier.cn:11010,tcp://public2.easytier.cn:54321&#xa;&#xa;房主和加入者必须连接到至少一个相同节点，才能互相连上。" />
+                                <StackPanel Orientation="Horizontal" Grid.Row="2" Grid.ColumnSpan="2" HorizontalAlignment="Left">
+                                    <local:MyButton MinWidth="140" Padding="13,5" Margin="0,0,20,0" HorizontalAlignment="Left"
+                                        Text=" 光荣地贡献节点！" ColorType="Highlight"
+                                        ToolTip="联机功能全靠社区的各位无私贡献的节点才能存在！&#xa;如果你有空闲的高带宽服务器，欢迎搭建一个共享节点，人人为我，我为人人嘛……" 
+                                        local:CustomEventService.EventType="打开网页" local:CustomEventService.EventData="https://shimo.im/docs/qKPttVvXKqPD8YDC#anchor-Dupo" />
+                                    <local:MyButton MinWidth="140" Padding="13,5" Margin="0,0,20,0" HorizontalAlignment="Left"
+                                        Text="节点状态"
+                                        local:CustomEventService.EventType="打开网页" local:CustomEventService.EventData="https://uptime.easytier.cn/" />
+                                </StackPanel>
+                            </Grid>
+                        </local:MyCard>
+                        <local:MyCard Margin="0,0,0,15" Title="开源版联机模块（去服务器依赖）">
+                            <StackPanel Margin="25,40,25,22">
+                                <TextBlock Text="联机模块版本（EasyTier 发布标签，例如 v2.7.0）" FontSize="13" Foreground="{StaticResource ColorBrushGray2}" />
+                                <local:MyTextBox x:Name="TextModuleRelease" local:SettingService.Key="LinkModuleRelease" Margin="0,4,0,0"
+                                    ToolTip="改动后会在下次启动联机时重新下载对应版本的联机模块（GitHub 主源 + ghproxy 镜像备用）。" />
+                                <TextBlock Margin="0,14,0,0" Text="节点来源（主，用于获取公共中继 / 发现节点列表）" FontSize="13" Foreground="{StaticResource ColorBrushGray2}" />
+                                <local:MyTextBox x:Name="TextNodeApi" local:SettingService.Key="LinkNodeApiUrl" Margin="0,4,0,0" />
+                                <TextBlock Margin="0,14,0,0" Text="节点来源（备用，主源失败时回退）" FontSize="13" Foreground="{StaticResource ColorBrushGray2}" />
+                                <local:MyTextBox x:Name="TextNodeCdn" local:SettingService.Key="LinkNodeCdnUrl" Margin="0,4,0,0" />
+                                <TextBlock Margin="0,10,0,0" FontSize="12" Foreground="{StaticResource ColorBrushGray3}" TextWrapping="Wrap"
+                                    Text="以上设置替代 PCL 官方 ServerConfig。版本号改动后，联机模块会在下次启动联机时自动重新下载。" />
+                            </StackPanel>
+                        </local:MyCard>
                     </StackPanel>
-                </local:MyCard>
+                </local:MyScrollViewer>
             </Grid>
             <Grid x:Name="PanFinish" Visibility="Collapsed" HorizontalAlignment="Center" VerticalAlignment="Center" MinWidth="300">
                 <Grid.RowDefinitions>
