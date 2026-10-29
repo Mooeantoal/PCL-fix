@@ -140,7 +140,7 @@ Public Class PageLinkMain
             HintText:=If(String.IsNullOrEmpty(LastCode), "", "使用上一次的邀请码"))
         If Not String.IsNullOrEmpty(LastCode) AndAlso Code IsNot Nothing AndAlso Code = "" Then Code = LastCode
         If Code Is Nothing Then Return
-        JoinInternal(Code)
+        Join(Code)
     End Sub
     Public Sub JoinInternal(Code As String)
         If Code Is Nothing Then Return
