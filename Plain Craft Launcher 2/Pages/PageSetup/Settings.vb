@@ -127,7 +127,7 @@ Public Class Settings
         '默认节点来源改为国内可访问的 meloong CDN，官方 uptime 作为备用
         New Setting("LinkNodeApiUrl", "https://easytier.meloong.com/?page=1&per_page=1000"),
         New Setting("LinkNodeCdnUrl", "https://uptime.easytier.cn/api/nodes?page=1&per_page=1000"),
-        New Setting("LinkNodeSource", "", Source:=Sources.Settings),
+        New Setting("LinkNodeSource", "", Source:=Sources.Normal),
         New Setting("ToolHelpChinese", True, Source:=Sources.Registry),
         New Setting("ToolDownloadThread", 63, Source:=Sources.Registry),
         New Setting("ToolDownloadSpeed", 42, Source:=Sources.Registry, OnChanged:=AddressOf ModNet.UpdateNetTaskSpeedLimitHigh),
