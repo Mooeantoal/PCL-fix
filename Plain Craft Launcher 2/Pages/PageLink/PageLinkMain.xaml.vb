@@ -135,7 +135,7 @@ Public Class PageLinkMain
     ''' <summary>
     ''' 输入邀请码，切换到联机页并立即加入房间。
     ''' </summary>
-    Public Sub StartJoin()
+    Public Shared Sub Join()
         Dim Code As String = MyMsgBoxInput("输入邀请码", "输入房主发给你的邀请码。",
             HintText:=If(String.IsNullOrEmpty(LastCode), "", "使用上一次的邀请码"))
         If Not String.IsNullOrEmpty(LastCode) AndAlso Code IsNot Nothing AndAlso Code = "" Then Code = LastCode
@@ -232,7 +232,7 @@ Public Class PageLinkMain
     Private Sub BtnLinkStart_Click() Handles BtnLinkStart.Click
         Select Case ComboLinkMode.SelectedIndex
             Case 0 : StartCreate()
-            Case 1 : StartJoin()
+            Case 1 : Join()
             Case 2 :
                 If TextDirectRemote.Text.Trim().Contains(":") Then
                     BtnDirectConnect_Click()
