@@ -281,7 +281,8 @@ Public Class PageLinkMain
     End Sub
 
     Private Sub NodeSource_Checked(sender As Object, raiseByMouse As Boolean)
-        Dim Key = CType(sender, MyRadioButton).Tag?.ToString
+        Dim TagObj = CType(sender, MyRadioButton).Tag
+        Dim Key = If(TagObj IsNot Nothing, TagObj.ToString, "")
         Settings.Set("LinkNodeSource", If(Key, ""))
         UpdateNodeSourceHint()
     End Sub
@@ -295,11 +296,11 @@ Public Class PageLinkMain
                 LabNodeSourceHint.Text = "当前：自动（尚未检测，将默认使用 " & BuiltinNodeSources(0).Name & "）"
             Else
                 Dim src = BuiltinNodeSources.FirstOrDefault(Function(x) x.Key = Best.Key)
-                LabNodeSourceHint.Text = "当前：自动 → " & If(src?.Name, Best.Key) & "（" & Best.LatencyMs & "ms）"
+                LabNodeSourceHint.Text = "当前：自动 → " & If(src IsNot Nothing, src.Name, Best.Key) & "（" & Best.LatencyMs & "ms）"
             End If
         Else
             Dim src = BuiltinNodeSources.FirstOrDefault(Function(x) x.Key = Key)
-            LabNodeSourceHint.Text = "当前：固定使用 " & If(src?.Name, Key)
+            LabNodeSourceHint.Text = "当前：固定使用 " & If(src IsNot Nothing, src.Name, Key)
         End If
     End Sub
 
@@ -758,7 +759,8 @@ Public Class PageLinkMain
                     Dim Count = 0
                     Try
                         Dim Json = Text.DeserializeJson()
-                        Dim Items = Json("data")?("items")
+                        Dim Data = Json("data")
+                        Dim Items = If(Data IsNot Nothing, Data("items"), Nothing)
                         If Items IsNot Nothing Then Count = Items.Count
                     Catch
                     End Try
@@ -767,7 +769,7 @@ Public Class PageLinkMain
                     st.NodeCount = Count
                 Catch ex As Exception
                     st.Available = False
-                    st.LastError = If(ex.InnerException?.Message, ex.Message)
+                    st.LastError = If(ex.InnerException IsNot Nothing, ex.InnerException.Message, ex.Message)
                 End Try
                 SyncLock NodeSourceStatuses
                     NodeSourceStatuses(st.Key) = st
