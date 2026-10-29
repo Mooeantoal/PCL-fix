@@ -77,6 +77,9 @@ Public Class PageLinkMain
         End If
         '加载联机设置项（版本 / 节点来源 / 模式 / 自定义节点）
         SettingService.RefreshSettings(Me)
+        '刷新社区节点来源列表（首次进入时自动检测可用性与延迟）
+        RefreshNodeSourceUI()
+        If NodeSourceStatuses.Count = 0 Then RunInNewThread(Sub() DetectNodeSources())
     End Sub
 
 #End Region
@@ -240,6 +243,69 @@ Public Class PageLinkMain
                     Hint("请在下方「局域网 / 直接连接」填写对方地址（IP:端口）后点击「启动游戏并连接」", HintType.Blue)
                 End If
         End Select
+    End Sub
+
+    '节点来源 UI：刷新可选列表、选中状态与提示
+    Private Sub RefreshNodeSourceUI()
+        If PanNodeSources Is Nothing Then Return
+        PanNodeSources.Children.Clear()
+        '自动（推荐）
+        Dim AutoRadio As New MyRadioButton With {.Text = "自动（推荐）：自动检测并选择延迟最低的可用节点", .ColorType = MyRadioButton.ColorState.Highlight, .Tag = ""}
+        PanNodeSources.Children.Add(AutoRadio)
+        AutoRadio.Checked = String.IsNullOrEmpty(SelectedNodeSourceKey())
+        AddHandler AutoRadio.Check, AddressOf NodeSource_Checked
+        '各社区节点来源
+        For Each src In BuiltinNodeSources
+            Dim st As NodeSourceStatus = Nothing
+            SyncLock NodeSourceStatuses
+                NodeSourceStatuses.TryGetValue(src.Key, st)
+            End SyncLock
+            Dim ParamText As String
+            If st Is Nothing Then
+                ParamText = "未检测"
+            ElseIf st.Available Then
+                ParamText = st.LatencyMs & "ms · " & st.NodeCount & " 节点"
+            Else
+                Dim Err = If(st.LastError, "")
+                If Err.Length > 40 Then Err = Err.Substring(0, 40) & "…"
+                ParamText = "✘ " & Err
+            End If
+            Dim Radio As New MyRadioButton With {.Text = src.Name, .Tag = src.Key, .ColorType = MyRadioButton.ColorState.Highlight}
+            PanNodeSources.Children.Add(Radio)
+            Radio.Inlines.Add(New System.Windows.Documents.LineBreak())
+            Radio.Inlines.Add(New Run(src.ApiUrl & "   ·   " & ParamText) With {.Foreground = New MyColor(160, 160, 160), .FontSize = 11})
+            Radio.Checked = (SelectedNodeSourceKey() = src.Key)
+            AddHandler Radio.Check, AddressOf NodeSource_Checked
+        Next
+        UpdateNodeSourceHint()
+    End Sub
+
+    Private Sub NodeSource_Checked(sender As Object, raiseByMouse As Boolean)
+        Dim Key = CType(sender, MyRadioButton).Tag?.ToString
+        Settings.Set("LinkNodeSource", If(Key, ""))
+        UpdateNodeSourceHint()
+    End Sub
+
+    Private Sub UpdateNodeSourceHint()
+        If LabNodeSourceHint Is Nothing Then Return
+        Dim Key = SelectedNodeSourceKey()
+        If String.IsNullOrEmpty(Key) Then
+            Dim Best = GetAvailableStatuses().OrderBy(Function(s) s.LatencyMs).FirstOrDefault()
+            If Best Is Nothing Then
+                LabNodeSourceHint.Text = "当前：自动（尚未检测，将默认使用 " & BuiltinNodeSources(0).Name & "）"
+            Else
+                Dim src = BuiltinNodeSources.FirstOrDefault(Function(x) x.Key = Best.Key)
+                LabNodeSourceHint.Text = "当前：自动 → " & If(src?.Name, Best.Key) & "（" & Best.LatencyMs & "ms）"
+            End If
+        Else
+            Dim src = BuiltinNodeSources.FirstOrDefault(Function(x) x.Key = Key)
+            LabNodeSourceHint.Text = "当前：固定使用 " & If(src?.Name, Key)
+        End If
+    End Sub
+
+    Private Sub BtnNodeRefresh_Click() Handles BtnNodeRefresh.Click
+        RunInNewThread(Sub() DetectNodeSources())
+        Hint("正在检测各节点来源可用性与延迟……", HintType.Blue)
     End Sub
 
 #End Region
@@ -608,6 +674,113 @@ Public Class PageLinkMain
         End Try
     End Function
 
+#Region "社区节点来源检测"
+
+    '内置可选社区节点来源（公开只读的节点列表与状态页）
+    Private Class LinkNodeSourceDef
+        Public Key As String
+        Public Name As String
+        Public ApiUrl As String
+        Public WebUrl As String
+    End Class
+    Private Shared ReadOnly BuiltinNodeSources As New List(Of LinkNodeSourceDef) From {
+        New LinkNodeSourceDef With {.Key = "qtet", .Name = "Qtet 社区节点", .ApiUrl = "https://info.qtet.cn/uptime/api/nodes?page=1&per_page=1000", .WebUrl = "https://info.qtet.cn/uptime/easytier"},
+        New LinkNodeSourceDef With {.Key = "meloong", .Name = "Meloong CDN", .ApiUrl = "https://easytier.meloong.com/?page=1&per_page=1000", .WebUrl = "https://easytier.meloong.com/"},
+        New LinkNodeSourceDef With {.Key = "official", .Name = "EasyTier 官方", .ApiUrl = "https://uptime.easytier.cn/api/nodes?page=1&per_page=1000", .WebUrl = "https://uptime.easytier.cn/"}
+    }
+
+    '各节点来源的检测结果缓存（可用性 / 延迟 / 节点数）
+    Private Class NodeSourceStatus
+        Public Key As String
+        Public Available As Boolean = False
+        Public LatencyMs As Long = -1
+        Public NodeCount As Integer = 0
+        Public LastError As String = ""
+        Public CheckTime As Date
+    End Class
+    Private Shared NodeSourceStatuses As New Dictionary(Of String, NodeSourceStatus)
+    Private Shared NodeSourceTesting As Boolean = False
+
+    '用户选定的节点来源 Key；为空表示自动选择延迟最低者
+    Private Shared Function SelectedNodeSourceKey() As String
+        Dim Key = Settings.Get(Of String)("LinkNodeSource")
+        If String.IsNullOrEmpty(Key) Then Return ""
+        If BuiltinNodeSources.Any(Function(s) s.Key = Key) Then Return Key
+        Return ""
+    End Function
+
+    '获取最佳节点来源 URL（自动时取延迟最低且可用者，否则取选定来源）
+    Private Shared Function GetBestNodeSourceUrl() As String
+        Dim Key = SelectedNodeSourceKey()
+        If Not String.IsNullOrEmpty(Key) Then
+            Dim s = BuiltinNodeSources.FirstOrDefault(Function(x) x.Key = Key)
+            If s IsNot Nothing Then Return s.ApiUrl
+        End If
+        Dim Best = GetAvailableStatuses().OrderBy(Function(st) st.LatencyMs).FirstOrDefault()
+        If Best IsNot Nothing Then
+            Dim s = BuiltinNodeSources.FirstOrDefault(Function(x) x.Key = Best.Key)
+            If s IsNot Nothing Then Return s.ApiUrl
+        End If
+        Return BuiltinNodeSources(0).ApiUrl
+    End Function
+
+    Private Shared Function GetAvailableStatuses() As List(Of NodeSourceStatus)
+        Dim List As New List(Of NodeSourceStatus)
+        SyncLock NodeSourceStatuses
+            List.AddRange(NodeSourceStatuses.Values.Where(Function(s) s.Available))
+        End SyncLock
+        Return List
+    End Function
+
+    '按优先级生成候选节点来源 URL：最佳来源 → 其它可用来源（按延迟）→ 备用 CDN
+    Private Shared Function GetCandidateNodeUrls(PrimaryUrl As String) As List(Of String)
+        Dim List As New List(Of String) From {PrimaryUrl}
+        For Each st In GetAvailableStatuses().OrderBy(Function(s) s.LatencyMs)
+            Dim src = BuiltinNodeSources.FirstOrDefault(Function(x) x.Key = st.Key)
+            If src IsNot Nothing AndAlso src.ApiUrl <> PrimaryUrl Then List.Add(src.ApiUrl)
+        Next
+        Dim Cdn = Settings.Get(Of String)("LinkNodeCdnUrl")
+        If Not String.IsNullOrEmpty(Cdn) Then List.Add(Cdn)
+        Return List
+    End Function
+
+    '检测所有内置节点来源的可用性与延迟（后台执行，结果写入缓存并刷新 UI）
+    Private Shared Sub DetectNodeSources()
+        If NodeSourceTesting Then Return
+        NodeSourceTesting = True
+        Try
+            For Each src In BuiltinNodeSources
+                Dim st As New NodeSourceStatus With {.Key = src.Key, .CheckTime = Date.Now}
+                Try
+                    Dim Sw As New Stopwatch : Sw.Start()
+                    Dim Text = NetGetJsonTolerant(src.ApiUrl, 8000)
+                    Sw.Stop()
+                    Dim Count = 0
+                    Try
+                        Dim Json = Text.DeserializeJson()
+                        Dim Items = Json("data")?("items")
+                        If Items IsNot Nothing Then Count = Items.Count
+                    Catch
+                    End Try
+                    st.Available = True
+                    st.LatencyMs = Sw.ElapsedMilliseconds
+                    st.NodeCount = Count
+                Catch ex As Exception
+                    st.Available = False
+                    st.LastError = If(ex.InnerException?.Message, ex.Message)
+                End Try
+                SyncLock NodeSourceStatuses
+                    NodeSourceStatuses(st.Key) = st
+                End SyncLock
+                RunInUi(Sub() If FrmLinkMain IsNot Nothing Then FrmLinkMain.RefreshNodeSourceUI())
+            Next
+        Finally
+            NodeSourceTesting = False
+        End Try
+    End Sub
+
+#End Region
+
 #Region "加载"
 
     Private WithEvents LinkLoader As New LoaderCombo(Of Integer)("联机", {
@@ -804,13 +977,17 @@ Public Class PageLinkMain
             '从 API 获取节点列表
             Dim RawNodes As JObject
             Dim IsFallbackRawList As Boolean = False
-            Try
-                RawNodes = NetGetJsonTolerant(Settings.Get(Of String)("LinkNodeApiUrl"), 8000).DeserializeJson()
-            Catch exx As Exception
-                Logger.Warn(exx, "从主节点来源获取节点列表失败，将使用备用来源")
-                RawNodes = NetGetJsonTolerant(Settings.Get(Of String)("LinkNodeCdnUrl"), 8000).DeserializeJson()
-                IsFallbackRawList = True
-            End Try
+            Dim PrimaryUrl = GetBestNodeSourceUrl()
+            For Each Url In GetCandidateNodeUrls(PrimaryUrl)
+                Try
+                    RawNodes = NetGetJsonTolerant(Url, 8000).DeserializeJson()
+                    IsFallbackRawList = (Url <> PrimaryUrl)
+                    Exit For
+                Catch exx As Exception
+                    Logger.Warn(exx, "从节点来源获取节点列表失败：" & Url)
+                End Try
+            Next
+            If RawNodes Is Nothing Then Throw New Exception("所有节点来源均不可用")
             '分析节点列表
             Dim Nodes As New List(Of JObject) '负载会添加在 load 字段上
             Dim BlackList As List(Of String) = LinkConfig("PeersBlackList").Select(Function(p) p.ToString).ToList()
