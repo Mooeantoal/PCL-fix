@@ -500,7 +500,7 @@ Public Class PageLinkMain
     Private NetworkName As String, NetworkSecret As String
 
     '开源版联机配置：替代 PCL 官方 LinkConfig，改用 EasyTier 公开发布与公共节点。
-    '版本号与节点来源改为从设置项（LinkModuleRelease / LinkNodeApiUrl / LinkNodeCdnUrl）读取，便于自行修改。
+    '版本号自动获取 EasyTier 最新发布；节点来源从设置项（LinkNodeApiUrl / LinkNodeCdnUrl）读取，便于自行修改。
     Private Shared ReadOnly LinkConfig As JObject = BuildLinkConfig()
 
     Private Shared Function BuildLinkConfig() As JObject
@@ -526,14 +526,86 @@ Public Class PageLinkMain
         End Try
     End Function
 
-    '根据当前设置的版本号与 CPU 架构生成下载地址（GitHub 主源 + ghproxy 镜像备用）
-    Private Shared Function GetEasyTierDownloadUrls(Architecture As String) As IEnumerable(Of String)
-        Dim Release As String = Settings.Get(Of String)("LinkModuleRelease")
-        If String.IsNullOrWhiteSpace(Release) Then Release = "v2.7.0"
+    '无法联网获取最新版本时使用的内置回退版本
+    Private Const FallbackEasyTierRelease As String = "v2.7.0"
+    '本次运行内缓存的最新版本号，避免重复请求
+    Private Shared LatestReleaseCache As String = Nothing
+
+    ''' <summary>
+    ''' 联网获取 EasyTier 最新稳定发布版本号（如 v2.8.0）。
+    ''' 依次尝试 GitHub API 与国内可用的镜像，全部失败时回退到内置版本。
+    ''' </summary>
+    Private Shared Function GetLatestEasyTierRelease() As String
+        If Not String.IsNullOrEmpty(LatestReleaseCache) Then Return LatestReleaseCache
+        Dim ApiUrl As String = "https://api.github.com/repos/EasyTier/EasyTier/releases/latest"
+        Dim Candidates As String() = {ApiUrl, "https://gh-proxy.com/" & ApiUrl}
+        For Each Url In Candidates
+            Try
+                Dim Json = NetGetJsonTolerant(Url, 8000).DeserializeJson()
+                Dim Tag As String = If(Json("tag_name")?.ToString, "").Trim
+                '只接受形如 v2.8.0 / 2.8.0 的稳定版本号
+                If System.Text.RegularExpressions.Regex.IsMatch(Tag, "^v?\d+\.\d+(\.\d+)?$") Then
+                    Logger.Info($"获取到 EasyTier 最新版本：{Tag}（{Url}）")
+                    LatestReleaseCache = Tag
+                    Return Tag
+                End If
+            Catch ex As Exception
+                Logger.Warn(ex, $"从 {Url} 获取 EasyTier 最新版本失败")
+            End Try
+        Next
+        Logger.Warn($"无法获取 EasyTier 最新版本，使用内置回退版本 {FallbackEasyTierRelease}")
+        Return FallbackEasyTierRelease
+    End Function
+
+    '根据版本号与 CPU 架构生成下载地址（GitHub 主源 + ghproxy 镜像备用）
+    Private Shared Function GetEasyTierDownloadUrls(Architecture As String, Release As String) As IEnumerable(Of String)
+        If String.IsNullOrWhiteSpace(Release) Then Release = FallbackEasyTierRelease
         Return {
             $"https://github.com/EasyTier/EasyTier/releases/download/{Release}/easytier-windows-{Architecture}-{Release}.zip",
             $"https://ghproxy.net/https://github.com/EasyTier/EasyTier/releases/download/{Release}/easytier-windows-{Architecture}-{Release}.zip"
         }
+    End Function
+
+    ''' <summary>
+    ''' 联网获取 JSON 文本。正常请求失败时，回退到忽略证书校验的请求，
+    ''' 避免系统证书链或时间异常导致联机完全无法获取节点列表（仅用于公共只读数据）。
+    ''' </summary>
+    Private Shared Function NetGetJsonTolerant(Url As String, Optional TimeoutMs As Integer = 12000) As String
+        Try
+            Return NetRequestByClient(Url, RequireJson:=True, Timeout:=TimeoutMs)
+        Catch ex As Exception
+            Logger.Warn(ex, $"正常请求失败，将忽略证书校验重试：{Url}")
+            Dim Result As String = HttpGetTextIgnoreCert(Url, TimeoutMs)
+            Result = Result.Trim((vbCrLf & " ").ToCharArray)
+            If Not (Result.StartsWithF("{") AndAlso Result.EndsWithF("}")) AndAlso
+               Not (Result.StartsWithF("[") AndAlso Result.EndsWithF("]")) Then
+                Throw New FormatException("返回结果并非 JSON 格式：" & If(Result.Length > 500, Result.Substring(0, 500), Result))
+            End If
+            Return Result
+        End Try
+    End Function
+
+    '忽略证书校验的 GET 请求（仅作为正常请求失败后的兜底）
+    Private Shared Function HttpGetTextIgnoreCert(Url As String, TimeoutMs As Integer) As String
+        Dim Handler As New System.Net.Http.HttpClientHandler()
+        Handler.AutomaticDecompression = System.Net.DecompressionMethods.GZip Or System.Net.DecompressionMethods.Deflate
+        Handler.ServerCertificateCustomValidationCallback = Function(msg, cert, chain, errs) True
+        Dim Client As System.Net.Http.HttpClient = Nothing
+        Try
+            Client = New System.Net.Http.HttpClient(Handler)
+            Client.Timeout = TimeSpan.FromMilliseconds(TimeoutMs)
+            Client.DefaultRequestHeaders.TryAddWithoutValidation("Accept", "application/json")
+            Client.DefaultRequestHeaders.TryAddWithoutValidation("User-Agent", "PCL")
+            Using Cts As New System.Threading.CancellationTokenSource(TimeoutMs)
+                Using Response = Client.GetAsync(Url, System.Net.Http.HttpCompletionOption.ResponseContentRead, Cts.Token).GetAwaiter().GetResult()
+                    Response.EnsureSuccessStatusCode()
+                    Return Response.Content.ReadAsStringAsync().GetAwaiter().GetResult()
+                End Using
+            End Using
+        Finally
+            Client?.Dispose()
+            Handler.Dispose()
+        End Try
     End Function
 
 #Region "加载"
@@ -582,14 +654,14 @@ Public Class PageLinkMain
             Settings.Set("LinkEasyTierVersion", -1)
         End If
         Dim LocalVersion As Integer = Settings.Get(Of Integer)("LinkEasyTierVersion")
-        Dim Release As String = Settings.Get(Of String)("LinkModuleRelease")
-        If String.IsNullOrWhiteSpace(Release) Then Release = "v2.7.0"
+        '自动获取 EasyTier 最新版本（无法联网时回退到内置版本）
+        Dim Release As String = GetLatestEasyTierRelease()
         ServerVersion = ParseEasyTierVersion(Release)
         Dim RequiredFiles As New List(Of NetFile)
-        Logger.Info($"EasyTier 本地版本：{LocalVersion}，需求版本：{ServerVersion}（{Release}）")
+        Logger.Info($"EasyTier 本地版本：{LocalVersion}，最新版本：{ServerVersion}（{Release}）")
         If LocalVersion < ServerVersion Then
             RequiredFiles.Add(New NetFile(
-                GetEasyTierDownloadUrls(Architecture),
+                GetEasyTierDownloadUrls(Architecture, Release),
                 PathEasyTier & "EasyTier.zip",
                 New FileChecker With {.MinSize = 1024 * 1024 * 2}))
         End If
@@ -733,10 +805,10 @@ Public Class PageLinkMain
             Dim RawNodes As JObject
             Dim IsFallbackRawList As Boolean = False
             Try
-                RawNodes = NetRequestByClient(Settings.Get(Of String)("LinkNodeApiUrl"), RequireJson:=True).DeserializeJson()
+                RawNodes = NetGetJsonTolerant(Settings.Get(Of String)("LinkNodeApiUrl"), 8000).DeserializeJson()
             Catch exx As Exception
-                Logger.Warn(exx, "从源站获取节点列表失败，将使用 CDN 缓存")
-                RawNodes = NetRequestByClientRetry(Settings.Get(Of String)("LinkNodeCdnUrl"), RequireJson:=True).DeserializeJson()
+                Logger.Warn(exx, "从主节点来源获取节点列表失败，将使用备用来源")
+                RawNodes = NetGetJsonTolerant(Settings.Get(Of String)("LinkNodeCdnUrl"), 8000).DeserializeJson()
                 IsFallbackRawList = True
             End Try
             '分析节点列表
