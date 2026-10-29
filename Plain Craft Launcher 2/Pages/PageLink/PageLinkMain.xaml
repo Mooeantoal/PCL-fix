@@ -65,7 +65,7 @@
                                         <ColumnDefinition Width="1*" />
                                     </Grid.ColumnDefinitions>
                                     <TextBlock VerticalAlignment="Center" Text="方式" Margin="0,0,25,0" />
-                                    <local:MyComboBox x:Name="ComboLinkMode" Grid.Column="1">
+                                    <local:MyComboBox x:Name="ComboLinkMode" Grid.Column="1" Height="30">
                                         <local:MyComboBoxItem Content="创建房间" IsSelected="True" ToolTip="邀请朋友加入你的单人游戏。" />
                                         <local:MyComboBoxItem Content="加入房间" ToolTip="输入邀请码，加入朋友的房间。" />
                                         <local:MyComboBoxItem Content="局域网 / 直接连接" ToolTip="同网络下直接连接，无需服务器，完全离线可用。" />
@@ -96,10 +96,9 @@
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="Auto" SharedSizeGroup="Name" />
                                         <ColumnDefinition Width="1*" />
-                                        <ColumnDefinition Width="60" />
                                     </Grid.ColumnDefinitions>
                                     <TextBlock VerticalAlignment="Center" Text="模式" Margin="0,0,25,0" />
-                                    <local:MyComboBox x:Name="ComboLatencyMode" Grid.Column="1" Grid.ColumnSpan="2" local:SettingService.Key="LinkLatencyMode">
+                                    <local:MyComboBox x:Name="ComboLatencyMode" Grid.Column="1" Height="30" local:SettingService.Key="LinkLatencyMode">
                                         <local:MyComboBoxItem Content="优先直连" IsSelected="True" ToolTip="尽量不进行中转，而是 P2P 直连。" />
                                         <local:MyComboBoxItem Content="优先低延迟" ToolTip="如果使用中转节点能降低延迟，就不进行直连。&#xa;不过，这会增加社区节点的负载……" />
                                     </local:MyComboBox>
@@ -227,9 +226,6 @@
                     </StackPanel>
                 </local:MyCard>
             </Grid>
-        </Grid>
-        <Grid x:Name="PanAlways" HorizontalAlignment="Center" VerticalAlignment="Bottom" Margin="15" Opacity="0.5">
-            <local:MyTextButton Text="示例文本 www.meloong.com" Opacity="0.4" />
         </Grid>
     </Grid>
 </local:MyPageRight>
