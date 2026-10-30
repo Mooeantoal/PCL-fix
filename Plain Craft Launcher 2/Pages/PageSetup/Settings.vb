@@ -2,6 +2,8 @@ Imports System.Security.Cryptography
 
 Public Class Settings
 
+    '联机模块版本改为自动获取 EasyTier 最新发布，不再提供自定义版本设置
+    '默认节点来源改为国内可访问的 meloong CDN，官方 uptime 作为备用
     Public Shared ReadOnly Entries As Dictionary(Of String, Setting) = (New List(Of Setting) From {
         New Setting("Identify", "", Source:=Sources.Registry),
         New Setting("WindowHeight", 550),
@@ -123,8 +125,6 @@ Public Class Settings
         New Setting("LinkLatencyMode", 0, Source:=Sources.Registry),
         New Setting("LinkCustomPeer", ""),
         New Setting("LinkEasyTierVersion", -1, Source:=Sources.Registry),
-        '联机模块版本改为自动获取 EasyTier 最新发布，不再提供自定义版本设置
-        '默认节点来源改为国内可访问的 meloong CDN，官方 uptime 作为备用
         New Setting("LinkNodeApiUrl", "https://easytier.meloong.com/?page=1&per_page=1000"),
         New Setting("LinkNodeCdnUrl", "https://uptime.easytier.cn/api/nodes?page=1&per_page=1000"),
         New Setting("LinkNodeSource", ""),
