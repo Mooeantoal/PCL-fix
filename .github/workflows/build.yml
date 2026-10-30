@@ -37,11 +37,16 @@ jobs:
           git ls-files | ForEach-Object { git update-index --no-skip-worktree --no-assume-unchanged "$_" 2>$null }
           # 让 git 把对象库里的正确字节直接写回工作区（不经过 pwsh 字符串编解码，避免编码损坏）
           git checkout -f HEAD -- "$f"
-          # 诊断输出：打印落盘第 1 行与第 125 行，确认写盘正确
+          # 诊断输出：打印落盘第 1 行与第 125 行，并比对落盘文件与 HEAD blob 的哈希
           $lines = Get-Content $f
+          $h = git hash-object $f
+          $hh = git rev-parse ("HEAD:" + $f)
           Write-Output ("当前 HEAD = " + (git rev-parse HEAD))
           Write-Output ("落盘 Settings.vb 第 1 行 = " + $lines[0])
           Write-Output ("落盘 Settings.vb 第 125 行 = " + $lines[124])
+          Write-Output ("落盘文件 hash = " + $h)
+          Write-Output ("HEAD blob hash = " + $hh)
+          Write-Output ("两者一致 = " + ($h -eq $hh))
           $c = Get-Content $f -Raw
           if ($c -match 'Sources\.Settings') { throw "落盘 Settings.vb 仍含 Sources.Settings（写盘失败？）" }
           if ($c -notmatch 'LinkNodeSource') { throw "落盘 Settings.vb 缺少 LinkNodeSource（写盘失败？）" }
@@ -95,6 +100,25 @@ jobs:
 
       - name: Restore NuGet packages
         run: msbuild "Plain Craft Launcher 2.sln" -t:Restore -p:Configuration=Release -p:RestorePackagesConfig=true -nologo -v:m
+
+      # 构建前最后一刻核对：落盘 Settings.vb 是否仍与 HEAD blob 一致。
+      # 若不一致 → 说明 Restore/Inject 等中间步骤把它改回了旧版（一步定位元凶）；
+      # 若一致但 Build 仍报旧内容 → 说明 Build 读的是另一份副本（obj/wpftmp 缓存）。
+      - name: Pre-build verify Settings.vb
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $f = "Plain Craft Launcher 2/Pages/PageSetup/Settings.vb"
+          $h = git hash-object $f
+          $hh = git rev-parse ("HEAD:" + $f)
+          $lines = Get-Content $f
+          Write-Output ("=== Build 前最后检查 ===")
+          Write-Output ("HEAD = " + (git rev-parse HEAD))
+          Write-Output ("落盘第 125 行 = " + $lines[124])
+          Write-Output ("落盘文件 hash = " + $h)
+          Write-Output ("HEAD blob hash = " + $hh)
+          if ($h -ne $hh) { throw "Build 前 Settings.vb 与 HEAD 不一致（hash 不同）——中间步骤改写了它！" }
+          Write-Output "Build 前 Settings.vb 与 HEAD 完全一致"
 
       - name: Build
         run: msbuild "Plain Craft Launcher 2.sln" -p:Configuration=Release -m -nologo -v:m
