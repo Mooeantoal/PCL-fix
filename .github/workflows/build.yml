@@ -14,43 +14,14 @@ jobs:
         with:
           # 注意：本仓库的 MeloongCore 是普通目录（源码直接提交在主仓），
           # .gitmodules 里却把它声明成了子模块（过期配置）。
-          # 若开启 submodules: recursive，actions/checkout 会去初始化一个并不存在的子模块，
-          # 干扰正常 checkout，导致 Settings.vb 等文件停留在旧版本。因此必须关闭子模块拉取。
+          # 若开启 submodules: recursive，actions/checkout 会去初始化一个并不存在的子模块而报错，
+          # 因此必须关闭子模块拉取。
           submodules: false
           fetch-depth: 0
           clean: true
           # 项目运行依赖 .jar 等资源（见下方 Collect runtime files 步骤），多为 Git LFS 对象；
           # actions/checkout 默认不拉取 LFS，需显式开启，否则产物里是 LFS 指针文本而非真实文件
           lfs: true
-
-      # 强制把 Settings.vb 修正为 HEAD 中的正确字节（git 原生写盘，不经过 pwsh 编解码）。
-      # 背景：CI 多次在同一行号确定性失败，而 git 里该文件早已正确，说明落盘文件是旧副本。
-      # 关键教训：用 `git show | Set-Content` 会因编码（GBK / UTF-8+BOM）被 pwsh 重新编解码而损坏文件，
-      # 表现为整文件解析崩溃（如报错从第 125 行跳到第 1 行）。因此这里改用
-      # `git checkout -f HEAD -- <file>`，由 git 直接把对象库原始字节写回工作区，中文/编码完全保留。
-      - name: Force-correct Settings.vb from HEAD
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = "Stop"
-          $f = "Plain Craft Launcher 2/Pages/PageSetup/Settings.vb"
-          # 先清掉可能阻止覆盖的 git 位（防御性）
-          git ls-files | ForEach-Object { git update-index --no-skip-worktree --no-assume-unchanged "$_" 2>$null }
-          # 让 git 把对象库里的正确字节直接写回工作区（不经过 pwsh 字符串编解码，避免编码损坏）
-          git checkout -f HEAD -- "$f"
-          # 诊断输出：打印落盘第 1 行与第 125 行，并比对落盘文件与 HEAD blob 的哈希
-          $lines = Get-Content $f
-          $h = git hash-object $f
-          $hh = git rev-parse ("HEAD:" + $f)
-          Write-Output ("当前 HEAD = " + (git rev-parse HEAD))
-          Write-Output ("落盘 Settings.vb 第 1 行 = " + $lines[0])
-          Write-Output ("落盘 Settings.vb 第 125 行 = " + $lines[124])
-          Write-Output ("落盘文件 hash = " + $h)
-          Write-Output ("HEAD blob hash = " + $hh)
-          Write-Output ("两者一致 = " + ($h -eq $hh))
-          $c = Get-Content $f -Raw
-          if ($c -match 'Sources\.Settings') { throw "落盘 Settings.vb 仍含 Sources.Settings（写盘失败？）" }
-          if ($c -notmatch 'LinkNodeSource') { throw "落盘 Settings.vb 缺少 LinkNodeSource（写盘失败？）" }
-          Write-Output "Settings.vb 已强制修正为 HEAD 内容并通过校验"
 
       - name: Setup .NET SDK (for C# 13 in MeloongCore)
         uses: actions/setup-dotnet@v4
@@ -100,25 +71,6 @@ jobs:
 
       - name: Restore NuGet packages
         run: msbuild "Plain Craft Launcher 2.sln" -t:Restore -p:Configuration=Release -p:RestorePackagesConfig=true -nologo -v:m
-
-      # 构建前最后一刻核对：落盘 Settings.vb 是否仍与 HEAD blob 一致。
-      # 若不一致 → 说明 Restore/Inject 等中间步骤把它改回了旧版（一步定位元凶）；
-      # 若一致但 Build 仍报旧内容 → 说明 Build 读的是另一份副本（obj/wpftmp 缓存）。
-      - name: Pre-build verify Settings.vb
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = "Stop"
-          $f = "Plain Craft Launcher 2/Pages/PageSetup/Settings.vb"
-          $h = git hash-object $f
-          $hh = git rev-parse ("HEAD:" + $f)
-          $lines = Get-Content $f
-          Write-Output ("=== Build 前最后检查 ===")
-          Write-Output ("HEAD = " + (git rev-parse HEAD))
-          Write-Output ("落盘第 125 行 = " + $lines[124])
-          Write-Output ("落盘文件 hash = " + $h)
-          Write-Output ("HEAD blob hash = " + $hh)
-          if ($h -ne $hh) { throw "Build 前 Settings.vb 与 HEAD 不一致（hash 不同）——中间步骤改写了它！" }
-          Write-Output "Build 前 Settings.vb 与 HEAD 完全一致"
 
       - name: Build
         run: msbuild "Plain Craft Launcher 2.sln" -p:Configuration=Release -m -nologo -v:m
