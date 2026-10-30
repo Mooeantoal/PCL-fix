@@ -23,32 +23,31 @@ jobs:
           # actions/checkout 默认不拉取 LFS，需显式开启，否则产物里是 LFS 指针文本而非真实文件
           lfs: true
 
-      # 强制从 HEAD 重新物化整个工作区。
-      # 背景：本仓库多次构建都在同一行号确定性失败，说明 CI 磁盘上的 Settings.vb 是旧内容，
-      # 而 git 里早已修好。最可能的原因是持久化 runner 的工作目录里该文件被打了
-      # skip-worktree / assume-unchanged 位，导致 actions/checkout 的 `git checkout --force`
-      # 不会覆盖它（--force 不忽略这些位）。这里先清掉这些位，再从 HEAD 强制检出全部文件，
-      # 确保落盘内容与 git 完全一致。
-      - name: Force fresh working tree from HEAD
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = "Stop"
-          git ls-files | ForEach-Object { git update-index --no-skip-worktree --no-assume-unchanged "$_" 2>$null }
-          git checkout -f HEAD -- .
-          Write-Output "已从 HEAD 强制重新物化工作区"
-
-      # 检出新鲜度校验：确认实际落盘的 Settings.vb 已是最新（不含旧的 Sources.Settings）。
-      # 若仍交付旧文件，此处会以清晰信息失败，便于定位“陈旧 checkout”问题。
-      - name: Verify checkout freshness
+      # 强制把 Settings.vb 修正为 HEAD 中的正确内容，并打印落盘第 125 行做诊断。
+      # 背景：CI 多次在同一行号确定性失败，而 git 里该文件早已正确，
+      # 说明落盘文件是旧副本。此处不依赖 git checkout（它可能受 skip-worktree 位影响而跳过），
+      # 而是直接用 `git show HEAD:<file>` 读取对象库里的正确内容并 Set-Content 写盘，
+      # 绕过任何 git 索引/工作树状态，确保 msbuild 读到的就是正确版本。
+      - name: Force-correct Settings.vb from HEAD
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
           $f = "Plain Craft Launcher 2/Pages/PageSetup/Settings.vb"
-          if (-not (Test-Path $f)) { throw "未找到 $f，checkout 异常" }
+          # 先清掉可能阻止覆盖的 git 位（防御性）
+          git ls-files | ForEach-Object { git update-index --no-skip-worktree --no-assume-unchanged "$_" 2>$null }
+          # 方式1：从 HEAD 强制重新检出该文件
+          git checkout -f HEAD -- "$f" 2>$null
+          # 方式2（兜底，直接覆盖写盘）：用 git 对象库里的正确内容覆盖，完全绕过 git 状态
+          $correct = git show "HEAD:$f"
+          Set-Content -Path $f -Value $correct -NoNewline -Encoding UTF8
+          # 诊断输出：把真相打印到日志，便于确认修正是否生效
+          $lines = Get-Content $f
+          Write-Output ("当前 HEAD = " + (git rev-parse HEAD))
+          Write-Output ("落盘 Settings.vb 第 125 行 = " + $lines[124])
           $c = Get-Content $f -Raw
-          if ($c -match 'Sources\.Settings') { throw "Settings.vb 仍引用 Sources.Settings —— checkout 是陈旧版本！" }
-          if ($c -notmatch 'LinkNodeSource') { throw "Settings.vb 缺少 LinkNodeSource —— checkout 是陈旧版本！" }
-          Write-Output "Settings.vb checkout 新鲜度校验通过"
+          if ($c -match 'Sources\.Settings') { throw "落盘 Settings.vb 仍含 Sources.Settings（写入失败？）" }
+          if ($c -notmatch 'LinkNodeSource') { throw "落盘 Settings.vb 缺少 LinkNodeSource（写入失败？）" }
+          Write-Output "Settings.vb 已强制修正为 HEAD 内容并通过校验"
 
       - name: Setup .NET SDK (for C# 13 in MeloongCore)
         uses: actions/setup-dotnet@v4
