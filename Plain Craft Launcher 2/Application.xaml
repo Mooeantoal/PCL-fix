@@ -123,7 +123,7 @@
                 <Setter Property="Foreground" Value="{DynamicResource ColorBrush1}" />
                 <Setter Property="TextTrimming" Value="CharacterEllipsis" />
                 <Setter Property="FontFamily" Value="Resources/#PCL English, Microsoft YaHei UI" />
-                <Setter Property="TextOptions.TextFormattingMode" Value="Display" />
+                <Setter Property="TextOptions.TextFormattingMode" Value="Ideal" />
                 <Setter Property="TextOptions.TextRenderingMode" Value="ClearType" />
             </Style>
             <Style TargetType="TextBlock" x:Key="BasedOnTextBlock">
