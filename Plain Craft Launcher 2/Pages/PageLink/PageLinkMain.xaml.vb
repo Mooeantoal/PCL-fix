@@ -77,6 +77,9 @@ Public Class PageLinkMain
         End If
         '加载联机设置项（版本 / 模式 / 自定义节点）
         SettingService.RefreshSettings(Me)
+        '刷新自定义节点检测状态（若有填写则自动探测连通性），并显示版本提示
+        RefreshNodeSourceUI()
+        LabEasyTierVersion.Text = "联机模块版本：自动获取 EasyTier 最新发布"
     End Sub
 
 #End Region
@@ -500,7 +503,7 @@ Public Class PageLinkMain
     Private NetworkName As String, NetworkSecret As String
 
     '开源版联机配置：替代 PCL 官方 LinkConfig，改用 EasyTier 公开发布与公共节点。
-    '版本号自动获取 EasyTier 最新发布；节点来源使用内置社区节点（见 BuiltinNodeSources）。
+    '版本号自动获取 EasyTier 最新发布；节点来源使用「高级设置 - 自定义节点」中填写的节点（TCP 连通性探测优选）。
     Private Shared ReadOnly LinkConfig As JObject = BuildLinkConfig()
 
     Private Shared Function BuildLinkConfig() As JObject
@@ -608,98 +611,70 @@ Public Class PageLinkMain
         End Try
     End Function
 
-#Region "社区节点来源检测"
+#Region "自定义节点检测"
 
-    '内置可选社区节点来源（公开只读的节点列表与状态页）
-    Private Class LinkNodeSourceDef
-        Public Key As String
-        Public Name As String
-        Public ApiUrl As String
-        Public WebUrl As String
-    End Class
-    Private Shared ReadOnly BuiltinNodeSources As New List(Of LinkNodeSourceDef) From {
-        New LinkNodeSourceDef With {.Key = "qtet", .Name = "Qtet 社区节点", .ApiUrl = "https://info.qtet.cn/uptime/api/nodes?page=1&per_page=1000", .WebUrl = "https://info.qtet.cn/uptime/easytier"}
-    }
-
-    '各节点来源的检测结果缓存（可用性 / 延迟 / 节点数）
+    '各自定义节点（tcp:// 地址）的检测结果缓存（可用性 / 延迟）
     Private Class NodeSourceStatus
         Public Key As String
         Public Available As Boolean = False
         Public LatencyMs As Long = -1
-        Public NodeCount As Integer = 0
         Public LastError As String = ""
         Public CheckTime As Date
     End Class
     Private Shared NodeSourceStatuses As New Dictionary(Of String, NodeSourceStatus)
     Private Shared NodeSourceTesting As Boolean = False
 
-    '用户选定的节点来源 Key；为空表示自动选择延迟最低者
-    Private Shared Function SelectedNodeSourceKey() As String
-        Dim Key = Settings.Get(Of String)("LinkNodeSource")
-        If String.IsNullOrEmpty(Key) Then Return ""
-        If BuiltinNodeSources.Any(Function(s) s.Key = Key) Then Return Key
-        Return ""
+    '解析用户在「自定义节点」中填写的节点地址（逗号 / 中文逗号分隔，去除空白）
+    Private Shared Function GetCustomPeerUrls() As List(Of String)
+        Dim Raw = Settings.Get(Of String)("LinkCustomPeer")
+        If String.IsNullOrWhiteSpace(Raw) Then Return New List(Of String)
+        Return Raw.Split("，,".ToCharArray, StringSplitOptions.RemoveEmptyEntries) _
+                   .Select(Function(p) p.Trim()).Where(Function(p) p.Length > 0).ToList()
     End Function
 
-    '获取最佳节点来源 URL（自动时取延迟最低且可用者，否则取选定来源）
-    Private Shared Function GetBestNodeSourceUrl() As String
-        Dim Key = SelectedNodeSourceKey()
-        If Not String.IsNullOrEmpty(Key) Then
-            Dim s = BuiltinNodeSources.FirstOrDefault(Function(x) x.Key = Key)
-            If s IsNot Nothing Then Return s.ApiUrl
-        End If
-        Dim Best = GetAvailableStatuses().OrderBy(Function(st) st.LatencyMs).FirstOrDefault()
-        If Best IsNot Nothing Then
-            Dim s = BuiltinNodeSources.FirstOrDefault(Function(x) x.Key = Best.Key)
-            If s IsNot Nothing Then Return s.ApiUrl
-        End If
-        Return BuiltinNodeSources(0).ApiUrl
+    '对单个 tcp:// 节点地址做 TCP 连通性探测，返回（是否可达, 延迟毫秒, 错误信息）
+    Private Shared Function ProbeTcpPeer(Address As String, ByRef LatencyMs As Long, ByRef ErrMsg As String) As Boolean
+        LatencyMs = -1 : ErrMsg = ""
+        Try
+            Dim UriPart = Address.Trim()
+            If UriPart.StartsWith("tcp://", StringComparison.OrdinalIgnoreCase) Then UriPart = UriPart.Substring(6)
+            Dim Colon = UriPart.LastIndexOf(":"c)
+            If Colon < 0 Then Throw New Exception("节点地址缺少端口，应为 tcp://host:port")
+            Dim Host = UriPart.Substring(0, Colon).Trim()
+            Dim PortStr = UriPart.Substring(Colon + 1).Trim()
+            If Host.StartsWith("[") Then Host = Host.Substring(1)
+            If Host.EndsWith("]") Then Host = Host.Substring(0, Host.Length - 1)
+            Dim Port As Integer = Integer.Parse(PortStr)
+            Using Client As New System.Net.Sockets.TcpClient()
+                Dim Sw As New Stopwatch : Sw.Start()
+                Dim Ar = Client.BeginConnect(Host, Port, Nothing, Nothing)
+                If Not Ar.AsyncWaitHandle.WaitOne(3000) Then
+                    Client.Close()
+                    Throw New Exception("连接超时（>3 秒）")
+                End If
+                Client.EndConnect(Ar)
+                Sw.Stop()
+                LatencyMs = Sw.ElapsedMilliseconds
+                Client.Close()
+            End Using
+            Return True
+        Catch ex As Exception
+            ErrMsg = If(ex.InnerException IsNot Nothing, ex.InnerException.Message, ex.Message)
+            Return False
+        End Try
     End Function
 
-    Private Shared Function GetAvailableStatuses() As List(Of NodeSourceStatus)
-        Dim List As New List(Of NodeSourceStatus)
-        SyncLock NodeSourceStatuses
-            List.AddRange(NodeSourceStatuses.Values.Where(Function(s) s.Available))
-        End SyncLock
-        Return List
-    End Function
-
-    '按优先级生成候选节点来源 URL：最佳来源 → 其它可用来源（按延迟）→ 备用 CDN
-    Private Shared Function GetCandidateNodeUrls(PrimaryUrl As String) As List(Of String)
-        Dim List As New List(Of String) From {PrimaryUrl}
-        For Each st In GetAvailableStatuses().OrderBy(Function(s) s.LatencyMs)
-            Dim src = BuiltinNodeSources.FirstOrDefault(Function(x) x.Key = st.Key)
-            If src IsNot Nothing AndAlso src.ApiUrl <> PrimaryUrl Then List.Add(src.ApiUrl)
-        Next
-        Return List
-    End Function
-
-    '检测所有内置节点来源的可用性与延迟（后台执行，结果写入缓存并刷新 UI）
+    '检测所有自定义节点的连通性（后台执行，结果写入缓存并刷新 UI）
     Private Shared Sub DetectNodeSources()
         If NodeSourceTesting Then Return
         NodeSourceTesting = True
         Try
-            For Each src In BuiltinNodeSources
-                Dim st As New NodeSourceStatus With {.Key = src.Key, .CheckTime = Date.Now}
-                Try
-                    Dim Sw As New Stopwatch : Sw.Start()
-                    Dim Text = NetGetJsonTolerant(src.ApiUrl, 8000)
-                    Sw.Stop()
-                    Dim Count = 0
-                    Try
-                        Dim Json = Text.DeserializeJson()
-                        Dim Data = Json("data")
-                        Dim Items = If(Data IsNot Nothing, Data("items"), Nothing)
-                        If Items IsNot Nothing Then Count = Items.Count
-                    Catch
-                    End Try
-                    st.Available = True
-                    st.LatencyMs = Sw.ElapsedMilliseconds
-                    st.NodeCount = Count
-                Catch ex As Exception
-                    st.Available = False
-                    st.LastError = If(ex.InnerException IsNot Nothing, ex.InnerException.Message, ex.Message)
-                End Try
+            For Each Url In GetCustomPeerUrls()
+                Dim st As New NodeSourceStatus With {.Key = Url, .CheckTime = Date.Now}
+                Dim Latency As Long = -1, ErrMsg As String = ""
+                st.Available = ProbeTcpPeer(Url, Latency, ErrMsg)
+                st.LatencyMs = If(st.Available, Latency, -1)
+                st.LastError = ErrMsg
                 SyncLock NodeSourceStatuses
                     NodeSourceStatuses(st.Key) = st
                 End SyncLock
@@ -707,6 +682,48 @@ Public Class PageLinkMain
         Finally
             NodeSourceTesting = False
         End Try
+        RunInUi(Sub() If FrmLinkMain IsNot Nothing Then FrmLinkMain.RenderPeerStatus())
+    End Sub
+
+    '触发检测并立即回显（检测中）；最终结果由 DetectNodeSources 完成时再回显一次
+    Private Sub RefreshNodeSourceUI()
+        If LabCustomPeerStatus Is Nothing Then Return
+        RenderPeerStatus()
+        If GetCustomPeerUrls().Count > 0 Then RunInNewThread(Sub() DetectNodeSources())
+    End Sub
+
+    '仅根据当前缓存回显自定义节点检测状态
+    Private Sub RenderPeerStatus()
+        If LabCustomPeerStatus Is Nothing Then Return
+        Dim Urls = GetCustomPeerUrls()
+        If Urls.Count = 0 Then
+            LabCustomPeerStatus.Text = "未填写自定义节点，联机将提示需先填写。"
+            Return
+        End If
+        Dim Parts As New List(Of String)
+        SyncLock NodeSourceStatuses
+            For Each Url In Urls
+                Dim st As NodeSourceStatus = Nothing
+                NodeSourceStatuses.TryGetValue(Url, st)
+                Dim Line As String = Url & "："
+                If st Is Nothing Then
+                    Line &= "检测中…"
+                ElseIf st.Available Then
+                    Line &= "✔ " & st.LatencyMs & "ms"
+                Else
+                    Dim Err = If(st.LastError, "")
+                    If Err.Length > 36 Then Err = Err.Substring(0, 36) & "…"
+                    Line &= "✘ " & Err
+                End If
+                Parts.Add(Line)
+            Next
+        End SyncLock
+        LabCustomPeerStatus.Text = Parts.Join(vbCrLf)
+    End Sub
+
+    '点击「检测节点」：触发自定义节点 TCP 探测并刷新状态
+    Private Sub BtnDetectPeer_Click() Handles BtnDetectPeer.Click
+        RefreshNodeSourceUI()
     End Sub
 
 #End Region
@@ -901,84 +918,37 @@ Public Class PageLinkMain
     ''' </summary>
     Private Function GetTargetPeers() As List(Of String)
         Dim FinalPeers As New List(Of String), FinalDiscoverID As Integer = -1
-        Dim FallbackDiscoverID = LinkConfig("DiscoverPeerId").ToObject(Of Integer)
-        Dim FallbackDiscoverAddress As String = LinkConfig("DiscoverPeer").ToString()
         Try
-            '从 API 获取节点列表
-            Dim RawNodes As JObject
-            Dim IsFallbackRawList As Boolean = False
-            Dim PrimaryUrl = GetBestNodeSourceUrl()
-            For Each Url In GetCandidateNodeUrls(PrimaryUrl)
-                Try
-                    RawNodes = NetGetJsonTolerant(Url, 8000).DeserializeJson()
-                    IsFallbackRawList = (Url <> PrimaryUrl)
-                    Exit For
-                Catch exx As Exception
-                    Logger.Warn(exx, "从节点来源获取节点列表失败：" & Url)
-                End Try
+            '强制使用「高级设置 - 自定义节点」中填写的节点，不再自动连任何社区节点
+            Dim CustomUrls = GetCustomPeerUrls()
+            If CustomUrls.Count = 0 Then
+                Throw New Exception("请在「高级设置 - 自定义节点」填写与房主相同的节点后重试。")
+            End If
+            '对所有自定义节点做 TCP 连通性探测，按延迟升序取可用者
+            Dim Ok As New List(Of NodeSourceStatus)
+            For Each Url In CustomUrls
+                Dim Latency As Long = -1, ErrMsg As String = ""
+                Dim Avail = ProbeTcpPeer(Url, Latency, ErrMsg)
+                Dim st As New NodeSourceStatus With {.Key = Url, .Available = Avail, .LatencyMs = If(Avail, Latency, -1), .LastError = ErrMsg, .CheckTime = Date.Now}
+                SyncLock NodeSourceStatuses
+                    NodeSourceStatuses(st.Key) = st
+                End SyncLock
+                If Avail Then Ok.Add(st)
             Next
-            If RawNodes Is Nothing Then Throw New Exception("所有节点来源均不可用")
-            '分析节点列表
-            Dim Nodes As New List(Of JObject) '负载会添加在 load 字段上
-            Dim BlackList As List(Of String) = LinkConfig("PeersBlackList").Select(Function(p) p.ToString).ToList()
-            For Each Node As JObject In RawNodes("data")("items")
-                '状态检查
-                Dim ID = Node("id").ToObject(Of Integer)
-                If Not Node("is_active").ToObject(Of Boolean) OrElse Not Node("is_approved").ToObject(Of Boolean) Then Continue For
-                If ID = DiscoverNodeID Then GoTo ForcedPass '若为指定的发现节点，忽略后续检查
-                If ID = FallbackDiscoverID Then Continue For '不主动选取回退发现节点
-                If BlackList.Contains(Node("address").ToString) Then Continue For 'ServerConfig 黑名单
-                If Node("usage_percentage").ToObject(Of Double) = 0 AndAlso RandomInteger(1, 100) <> 1 Then Continue For '或许节点有问题才导致是 0 负载，让它只有 1% 概率被选中
-                '标签检查
-                Dim Tags = Node("tags").Select(Function(t) t.ToString).ToList
-                If Not Tags.Contains("国内") OrElse Not Tags.Contains("MC中继") Then Continue For
-                '计算负载并加入列表
-ForcedPass:
-                Dim Load As Double = Node("usage_percentage").ToObject(Of Double) '负载
-                Load *= 110 - Node("health_percentage_24h").ToObject(Of Double) '可用率
-                Node("load") = Load
-                Nodes.Add(Node)
+            Ok = Ok.OrderBy(Function(s) s.LatencyMs).ToList()
+            RunInUi(Sub() If FrmLinkMain IsNot Nothing Then FrmLinkMain.RenderPeerStatus())
+            If Ok.Count = 0 Then
+                Throw New Exception("填写的自定义节点均不可达，请检查节点地址或网络后重试。")
+            End If
+            For Each st In Ok
+                FinalPeers.Add(st.Key)
             Next
-            '排序
-            If Not IsFallbackRawList Then
-                Nodes = Nodes.OrderBy(Function(n) n("load").ToObject(Of Double)).ToList() '按负载从低到高排序
-            Else
-                Nodes = Nodes.Shuffle().ToList() '回退到 CDN 缓存时，由于负载数据可能过期，直接随机选择
-            End If
-            '选取发现节点
-            Dim SelectedDiscoverNode As JObject = Nothing
-            If DiscoverNodeID = -1 Then '-1：作为房主，根据负载均衡选择一个发现节点
-                SelectedDiscoverNode = Nodes.FirstOrDefault(Function(n) Not n("allow_relay").ToObject(Of Boolean))
-            ElseIf DiscoverNodeID > 0 Then '>0：作为加入者，根据 ID 选择对应的发现节点；如果没有，使用回退发现节点
-                SelectedDiscoverNode = Nodes.FirstOrDefault(Function(n) n("id").ToObject(Of Integer) = DiscoverNodeID)
-                If SelectedDiscoverNode Is Nothing Then
-                    Logger.Warn($"未找到 ID {DiscoverNodeID} 的发现节点")
-                    Panic("房间已过期", "请让房主重新创建房间！")
-                    Throw New OperationCanceledException
-                End If
-            End If
-            If SelectedDiscoverNode Is Nothing Then '使用回退发现节点
-                SelectedDiscoverNode = New JObject From {{"address", FallbackDiscoverAddress}, {"id", FallbackDiscoverID}}
-                Logger.Warn("将使用回退发现节点")
-            End If
-            FinalPeers.Add(SelectedDiscoverNode("address").ToString())
-            FinalDiscoverID = SelectedDiscoverNode("id").ToObject(Of Integer)
-            Logger.Info($"发现节点：{SelectedDiscoverNode("address")} (ID: {FinalDiscoverID})")
-            '选取中继节点
-            If ModeDebug OrElse Not IsServerSide Then '房主只连接发现节点，不连接中继节点
-                Dim RelayCount As Integer = LinkConfig("RandomPeer").ToObject(Of Integer)
-                Dim RelayNodes = Nodes.Where(Function(n) n("allow_relay").ToObject(Of Boolean)).ToList()
-                If RelayNodes.Count < RelayCount Then Throw New Exception($"可用的中继节点数量不足，需要 {RelayCount} 个，实际 {RelayNodes.Count} 个")
-                FinalPeers.AddRange(RelayNodes.Take(RelayCount).Select(Function(n) n("address").ToString()))
-            End If
+            FinalDiscoverID = -1
+            Logger.Info("自定义节点（可用）：" & Ok.Select(Function(s) s.Key & "(" & s.LatencyMs & "ms)").Join("，"))
         Catch ex As Exception
             ex.ThrowIfCanceled()
-            Logger.Error(ex, "获取节点列表失败，联机质量可能受到影响", LogBehavior.Toast)
-            FinalPeers.AddRange(LinkConfig("Peers").Select(Function(p) p.ToString))
-            If FinalDiscoverID <= 0 AndAlso Not String.IsNullOrEmpty(FallbackDiscoverAddress) Then
-                FinalPeers.Add(FallbackDiscoverAddress)
-                FinalDiscoverID = FallbackDiscoverID
-            End If
+            Logger.Error(ex, "获取自定义节点失败：" & ex.Message, LogBehavior.Toast)
+            Throw '强制必填：不回退到任何社区 / 服务器节点
         End Try
         '版本 1 兼容
         If CType(LinkConfig, JObject).ContainsKey("EnableForcedPeer") Then

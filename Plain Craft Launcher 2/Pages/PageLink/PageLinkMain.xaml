@@ -115,6 +115,9 @@
                                     <RowDefinition Height="28" />
                                     <RowDefinition Height="15" />
                                     <RowDefinition Height="35" />
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="12" />
+                                    <RowDefinition Height="Auto" />
                                 </Grid.RowDefinitions>
                                 <TextBlock VerticalAlignment="Center" HorizontalAlignment="Left" Text="自定义节点" Margin="0,0,25,0" />
                                 <local:MyTextBox x:Name="TextCustomPeer" local:SettingService.Key="LinkCustomPeer" Grid.Column="1" MaxHeight="28" 
@@ -127,6 +130,13 @@
                                     <local:MyButton MinWidth="140" Padding="13,5" Margin="0,0,20,0" HorizontalAlignment="Left"
                                         Text="节点状态"
                                         local:CustomEventService.EventType="打开网页" local:CustomEventService.EventData="https://uptime.easytier.cn/" />
+                                </StackPanel>
+                                <local:MyButton x:Name="BtnDetectPeer" Grid.Row="3" Grid.ColumnSpan="2" MinWidth="140" Padding="13,5" HorizontalAlignment="Left"
+                                    Text="检测节点" ColorType="Highlight"
+                                    ToolTip="对上方填写的自定义节点做 TCP 连通性探测，显示是否可达与延迟，并自动优选最低延迟者。" />
+                                <StackPanel Grid.Row="5" Grid.ColumnSpan="2">
+                                    <TextBlock x:Name="LabCustomPeerStatus" FontSize="12" Foreground="{StaticResource ColorBrushGray3}" TextWrapping="Wrap" Text="未填写自定义节点。" />
+                                    <TextBlock x:Name="LabEasyTierVersion" Margin="0,6,0,0" FontSize="12" Foreground="{StaticResource ColorBrushGray3}" TextWrapping="Wrap" Text="联机模块版本：自动获取 EasyTier 最新发布" />
                                 </StackPanel>
                             </Grid>
                         </local:MyCard>
