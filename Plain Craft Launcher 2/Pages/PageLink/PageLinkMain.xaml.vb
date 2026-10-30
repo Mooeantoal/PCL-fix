@@ -266,9 +266,9 @@ Public Class PageLinkMain
             ElseIf st.Available Then
                 ParamText = st.LatencyMs & "ms · " & st.NodeCount & " 节点"
             Else
-                Dim Err = If(st.LastError, "")
-                If Err.Length > 40 Then Err = Err.Substring(0, 40) & "…"
-                ParamText = "✘ " & Err
+                Dim ErrText = If(st.LastError, "")
+                If ErrText.Length > 40 Then ErrText = ErrText.Substring(0, 40) & "…"
+                ParamText = "✘ " & ErrText
             End If
             Dim Radio As New MyRadioButton With {.Text = src.Name, .Tag = src.Key, .ColorType = MyRadioButton.ColorState.Highlight}
             PanNodeSources.Children.Add(Radio)
