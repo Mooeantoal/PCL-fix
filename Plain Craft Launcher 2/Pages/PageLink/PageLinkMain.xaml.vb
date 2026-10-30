@@ -129,6 +129,8 @@ Public Class PageLinkMain
         NetworkSecret = GenerateRandomCode()
         DiscoverNodeID = -1
         Logger.Info($"尝试创建房间，网络名 {NetworkName}，网络密码 {NetworkSecret}，端口 {ServerPort}")
+        '检查管理员权限（创建虚拟网卡需要）
+        If Not EnsureLinkAdmin() Then Return
         '启动
         ChangeState(LinkStates.Loading)
     End Sub
@@ -166,6 +168,8 @@ Public Class PageLinkMain
             DiscoverNodeID = Code.Substring(20, 3).Upper.ConvertRadix(16, 10)
         End If
         Logger.Info($"尝试加入房间，网络名 {NetworkName}，网络密码 {NetworkSecret}，端口 {ServerPort}，发现节点 {DiscoverNodeID}")
+        '检查管理员权限（创建虚拟网卡需要）
+        If Not EnsureLinkAdmin() Then Return
         '启动
         LastCode = Code
         ChangeState(LinkStates.Loading)
@@ -516,6 +520,27 @@ Public Class PageLinkMain
         Cfg.Add("Peers", New JArray)
         Cfg.Add("MandatoryPeers", New JArray)
         Return Cfg
+    End Function
+
+    '判断当前进程是否以管理员身份运行（EasyTier 创建 TUN 虚拟网卡需要管理员权限）
+    Private Shared Function IsRunningAsAdmin() As Boolean
+        Try
+            Dim Identity = System.Security.Principal.WindowsIdentity.GetCurrent()
+            Dim Principal As New System.Security.Principal.WindowsPrincipal(Identity)
+            Return Principal.IsInRole(System.Security.Principal.WindowsBuiltInRole.Administrator)
+        Catch
+            Return False
+        End Try
+    End Function
+
+    '联机前检查管理员权限；返回 False 表示用户选择取消
+    Private Shared Function EnsureLinkAdmin() As Boolean
+        If IsRunningAsAdmin() Then Return True
+        Return MyMsgBox(
+            "联机需要管理员权限来创建虚拟网卡（TUN），否则会提示「无法创建虚拟网卡」。" & vbCrLf &
+            "建议关闭 PCL，右键选择「以管理员身份运行」后重试。" & vbCrLf & vbCrLf &
+            "是否仍要继续尝试？",
+            "需要管理员权限", "继续尝试", "取消") = 1
     End Function
 
     '将版本号字符串（如 v2.7.0）转换为用于本地版本比对的整数（如 20700）
@@ -1377,6 +1402,17 @@ Public Class PageLinkMain
     ''' </summary>
     Private Sub CheckCrash()
         If ProcessCore IsNot Nothing AndAlso Not ProcessCore.HasExited Then Return
+        '识别 TUN 虚拟网卡创建失败（通常是未以管理员身份运行，或存在残留 / 损坏的 Wintun 网卡）
+        If LogHistory.Any(Function(l) l.ContainsIgnoreCase("Failed to create adapter") OrElse l.ContainsIgnoreCase("TUN device error")) Then
+            Panic("无法创建虚拟网卡",
+                  "EasyTier 未能创建 TUN 虚拟网卡，通常是权限不足导致的。" & vbCrLf & vbCrLf &
+                  "请尝试：" & vbCrLf &
+                  "· 关闭 PCL，右键「以管理员身份运行」后重试；" & vbCrLf &
+                  "· 若已是管理员仍失败，在「设备管理器 → 网络适配器」卸载残留的 Wintun / EasyTier 网卡；" & vbCrLf &
+                  $"· 或删除 {PathEasyTier} 目录后重新进入联机以重新下载；" & vbCrLf &
+                  "· 检查安全软件是否拦截了虚拟网卡驱动安装。")
+            Return
+        End If
         Panic("联机模块已崩溃", "近期日志：" & vbCrLf & LogHistory.Join(vbCrLf))
     End Sub
 
