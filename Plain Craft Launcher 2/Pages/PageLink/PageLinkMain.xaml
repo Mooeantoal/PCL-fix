@@ -130,23 +130,7 @@
                                 </StackPanel>
                             </Grid>
                         </local:MyCard>
-                        <local:MyCard Margin="0,0,0,15" Title="开源版联机模块（去服务器依赖）">
-                            <StackPanel Margin="25,40,25,22">
-                                <TextBlock Text="联机模块版本：自动获取 EasyTier 最新发布" FontSize="13" Foreground="{StaticResource ColorBrushGray2}" />
-                                <TextBlock Margin="0,14,0,0" Text="社区节点来源（自动检测可用性与延迟，自动选择最佳）" FontSize="13" Foreground="{StaticResource ColorBrushGray2}" />
-                                <StackPanel x:Name="PanNodeSources" Margin="0,8,0,0" />
-                                <Grid Margin="0,12,0,0">
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="Auto" />
-                                        <ColumnDefinition Width="*" />
-                                    </Grid.ColumnDefinitions>
-                                    <local:MyButton x:Name="BtnNodeRefresh" Text="刷新检测" Padding="13,8" ColorType="Highlight" />
-                                    <TextBlock x:Name="LabNodeSourceHint" Grid.Column="1" VerticalAlignment="Center" Margin="12,0,0,0" FontSize="12" Foreground="{StaticResource ColorBrushGray3}" TextWrapping="Wrap" />
-                                </Grid>
-                                <TextBlock Margin="0,10,0,0" FontSize="12" Foreground="{StaticResource ColorBrushGray3}" TextWrapping="Wrap"
-                                    Text="每次启动联机会自动检测并切换至延迟最低、可用的节点来源；也可手动在上方选择固定来源。模块版本无需手动填写。" />
-                            </StackPanel>
-                        </local:MyCard>
+
                     </StackPanel>
                 </local:MyScrollViewer>
             </Grid>
