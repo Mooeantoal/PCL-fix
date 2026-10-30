@@ -1205,9 +1205,42 @@ Public Class PageLinkMain
     ''' 若在加载完成后连续获取失败 3 次，则会强制断开连接。
     ''' </summary>
     Private RefreshPeerLoader As New LoaderTask(Of Integer, List(Of Peer))("EasyTier CLI", AddressOf RefreshPeer)
+
+    ''' <summary>
+    ''' 调用 EasyTier CLI 并返回标准输出；失败、超时或未启动时返回空字符串。
+    ''' </summary>
+    Private Function RunEasyTierCli(CliArguments As String, TimeoutMs As Integer) As String
+        Try
+            Dim Info As New ProcessStartInfo With {
+                .FileName = PathEasyTier & "联机模块 CLI.exe",
+                .Arguments = CliArguments,
+                .UseShellExecute = False,
+                .CreateNoWindow = True,
+                .RedirectStandardOutput = True,
+                .RedirectStandardError = True,
+                .StandardOutputEncoding = Encoding.UTF8,
+                .StandardErrorEncoding = Encoding.UTF8
+            }
+            Using Proc As Process = Process.Start(Info)
+                If Proc Is Nothing Then Return ""
+                If Not Proc.WaitForExit(TimeoutMs) Then
+                    Try
+                        Proc.Kill()
+                    Catch
+                    End Try
+                    Return ""
+                End If
+                Return Proc.StandardOutput.ReadToEnd()
+            End Using
+        Catch ex As Exception
+            Logger.Warn(ex, "调用联机模块 CLI 失败")
+            Return ""
+        End Try
+    End Function
+
     Private Sub RefreshPeer()
         Try
-            Dim CliResult = "" 'StartProcessAndGetOutput(PathEasyTier & "联机模块 CLI.exe", $"-o json -p 127.0.0.1:{RPCPort} peer", 2000, Encoding:=Encoding.UTF8, PrintLog:=False)
+            Dim CliResult = RunEasyTierCli($"-o json -p 127.0.0.1:{RPCPort} peer", 2000)
             '解析
             If Not CliResult.Contains("lat_ms") Then Throw New Exception("CLI 调用失败：" & vbCrLf & CliResult)
             If GetUuid() Mod If(ModeDebug, 23, 103) = 0 Then Logger.Info($"CLI 输出抽样：{vbCrLf}{CliResult}")
