@@ -23,8 +23,22 @@ jobs:
           # actions/checkout 默认不拉取 LFS，需显式开启，否则产物里是 LFS 指针文本而非真实文件
           lfs: true
 
+      # 强制从 HEAD 重新物化整个工作区。
+      # 背景：本仓库多次构建都在同一行号确定性失败，说明 CI 磁盘上的 Settings.vb 是旧内容，
+      # 而 git 里早已修好。最可能的原因是持久化 runner 的工作目录里该文件被打了
+      # skip-worktree / assume-unchanged 位，导致 actions/checkout 的 `git checkout --force`
+      # 不会覆盖它（--force 不忽略这些位）。这里先清掉这些位，再从 HEAD 强制检出全部文件，
+      # 确保落盘内容与 git 完全一致。
+      - name: Force fresh working tree from HEAD
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          git ls-files | ForEach-Object { git update-index --no-skip-worktree --no-assume-unchanged "$_" 2>$null }
+          git checkout -f HEAD -- .
+          Write-Output "已从 HEAD 强制重新物化工作区"
+
       # 检出新鲜度校验：确认实际落盘的 Settings.vb 已是最新（不含旧的 Sources.Settings）。
-      # 若 checkout 仍交付旧文件，此处会以清晰信息失败，便于定位“陈旧 checkout”问题。
+      # 若仍交付旧文件，此处会以清晰信息失败，便于定位“陈旧 checkout”问题。
       - name: Verify checkout freshness
         shell: pwsh
         run: |
