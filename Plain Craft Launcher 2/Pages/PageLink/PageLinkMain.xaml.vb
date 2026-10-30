@@ -47,7 +47,7 @@ Public Class PageLinkMain
 
     '让加载器的 成功/失败 事件触发状态切换
     Private Sub LoaderInit() Handles Me.Initialized
-        PageLoaderInit(Load, PanLoad, PanContent, PanAlways, LinkLoader, AutoRun:=False)
+        PageLoaderInit(Load, PanLoad, PanContent, Nothing, LinkLoader, AutoRun:=False)
         AddHandler LinkLoader.OnStateChangedUi,
         Sub(Loader As LoaderBase, NewState As LoadState, OldState As LoadState)
             Select Case NewState
